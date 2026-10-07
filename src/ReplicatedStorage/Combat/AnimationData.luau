@@ -118,33 +118,191 @@ local Data = {}
 
 -- Fighter's bounce: weight dips and rises on the balls of the feet, the
 -- shoulders roll and the fists bob out of phase so the guard never freezes.
+-- Fighting stance, alive: four bounces on the balls of the feet per loop,
+-- each a little different. The body springs off the floor (fast out of the
+-- dip, floating at the top), weight drifts from foot to foot, the shoulders
+-- roll, the rear fist circles at the chin while the lead fist paws forward
+-- out of phase, and the head steadies itself with a glance halfway through.
+-- Feet stay planted: leg angles counter the torso's dip, tilt and sway.
 Data.Stance = {
-	length = 1.1, looped = true, priority = "Idle", group = "base",
+	length = 2, looped = true, priority = "Idle", group = "base",
 	keys = {
-		{ t = 0, ease = "Sine", dir = "InOut", pose = GUARD },
-		{ t = 0.28, ease = "Sine", dir = "InOut", pose = pose(GUARD, {
-			Torso = { -11, -22, 2, 0, -0.34, 0 },
-			Head = { 11, 20, -2 },
-			RightArm = { 94, 0, -40, 0, -0.04, 0.1 },
-			LeftArm = { 104, 0, 30, 0, -0.03, -0.05 },
-			RightLeg = { 5, 0, 10 },
-			LeftLeg = { 27, 0, -6 },
-		}) },
-		{ t = 0.55, ease = "Sine", dir = "InOut", pose = pose(GUARD, {
-			Torso = { -7, -18, -1, 0, -0.16, 0 },
-			Head = { 7, 16, 1 },
-			RightArm = { 104, 0, -43, 0, 0.03, 0.1 },
-			LeftArm = { 111, 0, 27 },
-		}) },
-		{ t = 0.83, ease = "Sine", dir = "InOut", pose = pose(GUARD, {
-			Torso = { -11, -19, -2, 0, -0.33, 0 },
-			Head = { 11, 17, 2 },
-			RightArm = { 97, 0, -41, 0, -0.03, 0.1 },
-			LeftArm = { 103, 0, 29, 0, -0.04, -0.05 },
-			RightLeg = { 5, 0, 10 },
-			LeftLeg = { 27, 0, -6 },
-		}) },
-		{ t = 1.1, pose = GUARD },
+		{ t = 0, ease = "Sine", dir = "In", pose = {
+			Torso = { -7, -17.5, 0, 0, -0.1, 0 },
+			Head = { 7, 16, 0 },
+			RightArm = { 104, 0, -42, 0, 0, 0.1 },
+			LeftArm = { 108, 0, 31, 0, 0, -0.05 },
+			RightLeg = { -0.5, -2, 9.5 },
+			LeftLeg = { 24, -2, -3.5 },
+		} },
+		{ t = 0.25, ease = "Sine", dir = "Out", pose = {
+			Torso = { -10.5, -20, 1, -0.04, -0.33, 0.02 },
+			Head = { 8.5, 19, -0.5 },
+			RightArm = { 99, 0, -39, 0, -0.04, 0.12 },
+			LeftArm = { 112, 0, 30, 0, -0.03, -0.14 },
+			RightLeg = { 4.5, 0, 7.5 },
+			LeftLeg = { 30, 0, -7.5 },
+		} },
+		{ t = 0.5, ease = "Sine", dir = "In", pose = {
+			Torso = { -7.5, -23, 2, -0.07, -0.12, 0 },
+			Head = { 8.5, 20.5, -2.5 },
+			RightArm = { 95, 0, -41, 0, 0, 0.1 },
+			LeftArm = { 117, 0, 27, 0, 0, -0.28 },
+			RightLeg = { 3.5, 2, 8 },
+			LeftLeg = { 23, 2, -7.5 },
+		} },
+		{ t = 0.75, ease = "Sine", dir = "Out", pose = {
+			Torso = { -10, -20.5, 1.5, -0.05, -0.29, -0.02 },
+			Head = { 8.5, 18.5, -1 },
+			RightArm = { 99, 0, -45, 0, -0.03, 0.06 },
+			LeftArm = { 111, 0, 25, 0, -0.03, -0.12 },
+			RightLeg = { 3.5, 0, 8 },
+			LeftLeg = { 28, 0, -7 },
+		} },
+		{ t = 1, ease = "Sine", dir = "In", pose = {
+			Torso = { -6.5, -18, 0.5, -0.01, -0.09, 0 },
+			Head = { 7.5, 19.5, 1 },
+			RightArm = { 103, 0, -43, 0, 0, 0.1 },
+			LeftArm = { 107, 0, 25, 0, 0, -0.04 },
+			RightLeg = { -1, -1, 9.5 },
+			LeftLeg = { 23, -1, -3.5 },
+		} },
+		{ t = 1.25, ease = "Sine", dir = "Out", pose = {
+			Torso = { -12, -20.5, -1, 0.04, -0.37, -0.04 },
+			Head = { 9, 24.5, 2.5 },
+			RightArm = { 98, 0, -39, 0, -0.05, 0.13 },
+			LeftArm = { 104, 0, 27, 0, -0.04, 0 },
+			RightLeg = { 4.5, 0, 8.5 },
+			LeftLeg = { 30, 0, -7 },
+		} },
+		{ t = 1.5, ease = "Sine", dir = "In", pose = {
+			Torso = { -7.5, -24, -2, 0.07, -0.13, 0 },
+			Head = { 8.5, 30, 2.5 },
+			RightArm = { 94, 0, -41, 0, 0, 0.1 },
+			LeftArm = { 102, 0, 29, 0, 0, 0.02 },
+			RightLeg = { 2.5, 2, 10.5 },
+			LeftLeg = { 20.5, 2, -5 },
+		} },
+		{ t = 1.75, ease = "Sine", dir = "Out", pose = {
+			Torso = { -10, -21, -1.5, 0.05, -0.3, 0.02 },
+			Head = { 8.5, 23, 1 },
+			RightArm = { 99, 0, -45, 0, -0.03, 0.06 },
+			LeftArm = { 104, 0, 31, 0, -0.03, -0.02 },
+			RightLeg = { 4, 1, 9 },
+			LeftLeg = { 27.5, 1, -6.5 },
+		} },
+		{ t = 2, pose = {
+			Torso = { -7, -17.5, 0, 0, -0.1, 0 },
+			Head = { 7, 16, 0 },
+			RightArm = { 104, 0, -42, 0, 0, 0.1 },
+			LeftArm = { 108, 0, 31, 0, 0, -0.05 },
+			RightLeg = { -0.5, -2, 9.5 },
+			LeftLeg = { 24, -2, -3.5 },
+		} },
+	},
+}
+
+-- Walk, authored for 16 studs/s (the client scales the playback). Classic
+-- four-pose step (contact, down, passing, up) mirrored for the other foot:
+-- arms swing opposite the legs, the torso dips onto each heel and rises over
+-- the planted leg, shoulders counter-twist and the head holds steady.
+-- Starts on the left heel with the right arm forward.
+local LOCO_WALK_CONTACT = {
+	Torso = { -4, 8, 0, 0, -0.2, 0 },
+	Head = { 5, -7, 0 },
+	RightArm = { 51, 0, -7 },
+	LeftArm = { -23, 0, -7 },
+	RightLeg = { -26, -8, 2 },
+	LeftLeg = { 40, -8, -2 },
+}
+local LOCO_WALK_DOWN = {
+	Torso = { -6, 5, 2, -0.04, -0.26, 0 },
+	Head = { 6, -4, -1 },
+	RightArm = { 37, 0, -4 },
+	LeftArm = { -9, 0, -6 },
+	RightLeg = { -12, -5, 1 },
+	LeftLeg = { 28, -5, -3 },
+}
+local LOCO_WALK_PASS = {
+	Torso = { -3, 0, 3, -0.06, -0.05, 0 },
+	Head = { 3, 0, -2 },
+	RightArm = { 16, 0, 5 },
+	LeftArm = { 12, 0, -5 },
+	RightLeg = { 13, 0, 0 },
+	LeftLeg = { 6, 0, -3 },
+}
+local LOCO_WALK_UP = {
+	Torso = { -4, -5, 2, -0.04, -0.08, 0 },
+	Head = { 4, 4, -1 },
+	RightArm = { -9, 0, 6 },
+	LeftArm = { 37, 0, 4 },
+	RightLeg = { 31, 5, 1 },
+	LeftLeg = { -13, 5, -3 },
+}
+Data.Walk = {
+	length = 0.72, looped = true, priority = "Movement", group = "base", speedRef = 16,
+	keys = {
+		{ t = 0, ease = "Sine", dir = "In", pose = LOCO_WALK_CONTACT },
+		{ t = 0.09, ease = "Linear", pose = LOCO_WALK_DOWN },
+		{ t = 0.18, ease = "Linear", pose = LOCO_WALK_PASS },
+		{ t = 0.27, ease = "Sine", dir = "Out", pose = LOCO_WALK_UP },
+		{ t = 0.36, ease = "Sine", dir = "In", pose = mirror(LOCO_WALK_CONTACT) },
+		{ t = 0.45, ease = "Linear", pose = mirror(LOCO_WALK_DOWN) },
+		{ t = 0.54, ease = "Linear", pose = mirror(LOCO_WALK_PASS) },
+		{ t = 0.63, ease = "Sine", dir = "Out", pose = mirror(LOCO_WALK_UP) },
+		{ t = 0.72, pose = LOCO_WALK_CONTACT },
+	},
+}
+
+-- Sprint, authored for 28 studs/s: arms pump hard opposite the legs, the
+-- knee drives high, the body sinks onto each footfall and floats through
+-- the flight phase between strides. The procedural layer adds more lean
+-- with speed, so the authored lean stays moderate.
+-- Starts in flight with the right knee up and the left arm forward.
+local LOCO_RUN_STRIDE = {
+	Torso = { -16, -10, 0, 0, 0.1, 0 },
+	Head = { 18, 8, 0 },
+	RightArm = { -38, 0, 10 },
+	LeftArm = { 85, 0, 16 },
+	RightLeg = { 74, 8, 3 },
+	LeftLeg = { -24, 8, -3 },
+}
+local LOCO_RUN_CONTACT = {
+	Torso = { -17, -7, -1.5, 0.02, -0.08, 0 },
+	Head = { 18, 6, 1 },
+	RightArm = { -12, 0, 8 },
+	LeftArm = { 56, 0, 12 },
+	RightLeg = { 52, 6, 2 },
+	LeftLeg = { 0, 6, -3 },
+}
+local LOCO_RUN_MID = {
+	Torso = { -20, 0, -3, 0.05, -0.24, 0 },
+	Head = { 21, 0, 2 },
+	RightArm = { 36, 0, 0 },
+	LeftArm = { 10, 0, -4 },
+	RightLeg = { 21, 0, 2 },
+	LeftLeg = { 42, 0, -4 },
+}
+local LOCO_RUN_PUSH = {
+	Torso = { -17, 7, -1.5, 0.02, -0.02, 0 },
+	Head = { 18, -6, 1 },
+	RightArm = { 70, 0, -12 },
+	LeftArm = { -18, 0, -8 },
+	RightLeg = { -6, -6, 3 },
+	LeftLeg = { 66, -6, -3 },
+}
+Data.Run = {
+	length = 0.52, looped = true, priority = "Movement", group = "base", speedRef = 28,
+	keys = {
+		{ t = 0, ease = "Sine", dir = "In", pose = LOCO_RUN_STRIDE },
+		{ t = 0.065, ease = "Linear", pose = LOCO_RUN_CONTACT },
+		{ t = 0.13, ease = "Linear", pose = LOCO_RUN_MID },
+		{ t = 0.195, ease = "Sine", dir = "Out", pose = LOCO_RUN_PUSH },
+		{ t = 0.26, ease = "Sine", dir = "In", pose = mirror(LOCO_RUN_STRIDE) },
+		{ t = 0.325, ease = "Linear", pose = mirror(LOCO_RUN_CONTACT) },
+		{ t = 0.39, ease = "Linear", pose = mirror(LOCO_RUN_MID) },
+		{ t = 0.455, ease = "Sine", dir = "Out", pose = mirror(LOCO_RUN_PUSH) },
+		{ t = 0.52, pose = LOCO_RUN_STRIDE },
 	},
 }
 
@@ -165,24 +323,6 @@ local WALK_PASS = {
 	RightLeg = { 18, 0, 4 },
 	LeftLeg = { 4, 0, -4 },
 }
-Data.Walk = {
-	length = 0.72, looped = true, priority = "Movement", group = "base", speedRef = 16,
-	keys = {
-		{ t = 0, ease = "Sine", dir = "InOut", pose = WALK_A },
-		{ t = 0.18, ease = "Sine", dir = "InOut", pose = WALK_PASS },
-		{ t = 0.36, ease = "Sine", dir = "InOut", pose = pose(WALK_A, {
-			Torso = { -10, -20, 0, 0, -0.3, 0 },
-			Head = { 10, 20, 0 },
-			RightLeg = { -14, 0, 4 },
-			LeftLeg = { 46, 0, -4 },
-		}) },
-		{ t = 0.54, ease = "Sine", dir = "InOut", pose = pose(WALK_PASS, {
-			RightLeg = { 6, 0, 4 },
-			LeftLeg = { 20, 0, -4 },
-		}) },
-		{ t = 0.72, pose = WALK_A },
-	},
-}
 
 -- Sprint: hard forward lean, big arm pumps, high knees, a bouncing flight
 -- phase between strides. Authored for 28 studs/s.
@@ -201,16 +341,6 @@ local RUN_PASS = {
 	LeftArm = { 36, 0, -10 },
 	RightLeg = { 14, 0, 4 },
 	LeftLeg = { 66, 0, -4 },
-}
-Data.Run = {
-	length = 0.56, looped = true, priority = "Movement", group = "base", speedRef = 28,
-	keys = {
-		{ t = 0, ease = "Sine", dir = "Out", pose = RUN_A },
-		{ t = 0.14, ease = "Sine", dir = "In", pose = RUN_PASS },
-		{ t = 0.28, ease = "Sine", dir = "Out", pose = mirror(RUN_A) },
-		{ t = 0.42, ease = "Sine", dir = "In", pose = mirror(RUN_PASS) },
-		{ t = 0.56, pose = RUN_A },
-	},
 }
 
 -- Take-off: a quick crouch-and-spring, then tucks and holds until falling.
@@ -329,200 +459,366 @@ Data.DoubleJump = {
 -- M1 chain: right straight, left hook, right body shot, right roundhouse,
 -- then a finisher that blasts them away.
 
+-- Right cross. Dip, then a long readable coil (shoulders wound away, rear
+-- fist cocked back, lead hand pawing out to measure), a tense beat, then
+-- the hips turn over and the fist snaps through to the face.
 Data.M1_1 = {
-	length = 0.46, priority = "Action", group = "action", recover = 0.34,
-	markers = { Swing = 0.06, Hit = 0.13 },
+	length = 0.56, priority = "Action", group = "action", recover = 0.4,
+	markers = { Swing = 0.14, Hit = 0.2 },
 	trail = { "Right Arm" },
 	keys = {
-		{ t = 0, ease = "Quad", dir = "Out", pose = GUARD },
-		-- load: weight rocks back, rear fist chambers
-		{ t = 0.06, ease = "Quart", dir = "Out", pose = {
-			Torso = { -6, -36, 2, 0, -0.3, 0.12 },
-			Head = { 6, 32, -2 },
-			RightArm = { 84, 0, -30, 0, 0, 0.4 },
-			LeftArm = { 104, 0, 30, 0, 0, -0.1 },
-			RightLeg = { -4, 0, 11 },
-			LeftLeg = { 26, 0, -6 },
+		{ t = 0, ease = "Sine", dir = "Out", pose = GUARD },
+		-- counter-move: drop the hips, ease toward square, lead hand pokes out
+		{ t = 0.05, ease = "Quad", dir = "Out", pose = {
+			Torso = { -13, -14, -2, 0, -0.44, -0.05 },
+			Head = { 13, 12, 2 },
+			RightArm = { 94, 0, -40, 0, -0.06, 0.05 },
+			LeftArm = { 112, 0, 24, 0, 0, -0.2 },
+			RightLeg = { 5, 0, 10 },
+			LeftLeg = { 32, 0, -1 },
 		} },
-		-- snap: hips whip around, step in, arm fully extended
-		{ t = 0.13, ease = "Sine", dir = "Out", pose = {
-			Torso = { -16, 40, -4, 0, -0.32, -0.6 },
-			Head = { 10, -36, 4 },
-			RightArm = { 94, 0, -8, 0, 0, -0.55 },
-			LeftArm = { 78, 0, 44, 0, 0, 0.3 },
-			RightLeg = { -10, 0, 8 },
-			LeftLeg = { 34, 0, -6 },
+		-- coil: shoulders wind away, weight rocks onto the back foot
+		{ t = 0.115, ease = "Sine", dir = "InOut", pose = {
+			Torso = { 2, -50, -5, 0.12, -0.34, 0.25 },
+			Head = { -3, 47, 5 },
+			RightArm = { 96, 0, -34, 0, 0.1, 0.62 },
+			LeftArm = { 98, 0, 4, 0, 0.05, -0.35 },
+			RightLeg = { 6, 0, 16 },
+			LeftLeg = { 2, 0, -3 },
 		} },
-		-- hang on the impact
-		{ t = 0.17, ease = "Quad", dir = "InOut", pose = {
-			Torso = { -18, 45, -5, 0, -0.34, -0.68 },
-			Head = { 12, -40, 5 },
-			RightArm = { 96, 0, -4, 0, 0, -0.6 },
-			LeftArm = { 76, 0, 46, 0, 0, 0.32 },
-			RightLeg = { -12, 0, 8 },
-			LeftLeg = { 36, 0, -6 },
+		-- tense beat at the top of the coil
+		{ t = 0.14, ease = "Quad", dir = "In", pose = {
+			Torso = { 3, -54, -6, 0.14, -0.36, 0.28 },
+			Head = { -4, 51, 6 },
+			RightArm = { 98, 0, -32, 0, 0.12, 0.7 },
+			LeftArm = { 96, 0, 2, 0, 0.05, -0.38 },
+			RightLeg = { 7, 0, 18 },
+			LeftLeg = { -1, 0, -1 },
 		} },
-		-- recoil
-		{ t = 0.25, ease = "Back", dir = "Out", pose = {
-			Torso = { -12, 20, -2, 0, -0.28, -0.35 },
-			Head = { 10, -18, 2 },
-			RightArm = { 92, 0, -26, 0, 0, -0.1 },
-			LeftArm = { 92, 0, 36, 0, 0, 0.1 },
-			RightLeg = { -4, 0, 8 },
-			LeftLeg = { 30, 0, -6 },
+		-- mid-strike guide: fist drives straight down the centre line
+		{ t = 0.175, ease = "Linear", pose = {
+			Torso = { -8, -14, -1, 0.04, -0.36, -0.15 },
+			Head = { 8, 13, 1 },
+			RightArm = { 98, 0, -47, 0, 0.1, 0 },
+			LeftArm = { 104, 0, 22, 0, 0.02, -0.1 },
+			RightLeg = { -2, 0, 10 },
+			LeftLeg = { 27, 0, -4 },
 		} },
-		-- overshoot past guard, then settle
-		{ t = 0.36, ease = "Sine", dir = "InOut", pose = pose(GUARD, {
-			Torso = { -9, -26, 1, 0, -0.26, 0.05 },
-			Head = { 9, 24, -1 },
-		}) },
-		{ t = 0.46, pose = GUARD },
+		-- impact: hips turn over, step in, fist through the face
+		{ t = 0.2, ease = "Sine", dir = "Out", pose = {
+			Torso = { -16, 40, 6, -0.1, -0.34, -0.7 },
+			Head = { 16, -38, -6 },
+			RightArm = { 112, 0, 10, 0, 0.1, -0.55 },
+			LeftArm = { 122, 0, 62, 0, 0, 0.3 },
+			RightLeg = { -17, 0, -6 },
+			LeftLeg = { 37, 0, 18 },
+		} },
+		-- hang just past it
+		{ t = 0.245, ease = "Quad", dir = "InOut", pose = {
+			Torso = { -18, 46, 7, -0.12, -0.36, -0.78 },
+			Head = { 18, -44, -7 },
+			RightArm = { 116, 0, 14, 0, 0.1, -0.65 },
+			LeftArm = { 124, 0, 64, 0, 0, 0.32 },
+			RightLeg = { -18, 0, -8 },
+			LeftLeg = { 38, 0, 22 },
+		} },
+		-- follow-through: shoulders keep turning as the fist starts back
+		{ t = 0.285, ease = "Back", dir = "Out", pose = {
+			Torso = { -16, 52, 8, -0.1, -0.34, -0.7 },
+			Head = { 16, -50, -8 },
+			RightArm = { 104, 0, 4, 0, 0.05, -0.3 },
+			LeftArm = { 116, 0, 58, 0, 0, 0.3 },
+			RightLeg = { -21, 0, -12 },
+			LeftLeg = { 37, 0, 24 },
+		} },
+		-- rebound: fist snaps back to the chin, shoulders unwind
+		{ t = 0.36, ease = "Sine", dir = "InOut", pose = {
+			Torso = { -12, 8, -1, 0, -0.36, -0.25 },
+			Head = { 12, -9, 1 },
+			RightArm = { 112, 0, -44, 0, 0.02, 0.22 },
+			LeftArm = { 98, 0, 22, 0, -0.04, -0.05 },
+			RightLeg = { -6, 0, 9 },
+			LeftLeg = { 40, 0, 9 },
+		} },
+		-- overshoot past guard, bob down
+		{ t = 0.45, ease = "Sine", dir = "InOut", pose = {
+			Torso = { -11, -27, 1, 0, -0.3, 0.05 },
+			Head = { 11, 25, -1 },
+			RightArm = { 97, 0, -41, 0, -0.03, 0.1 },
+			LeftArm = { 104, 0, 29, 0, -0.03, -0.05 },
+			RightLeg = { 10, 0, 5 },
+			LeftLeg = { 27, 0, -12 },
+		} },
+		{ t = 0.56, pose = GUARD },
 	},
 }
 
+-- Lead hook. Settle, then the lead side opens up (weight onto the front
+-- foot, arm swung out wide and back), a beat, then the hips whip across and
+-- the fist wraps around at head height, carrying through before it rebounds.
 Data.M1_2 = {
-	length = 0.46, priority = "Action", group = "action", recover = 0.34,
-	markers = { Swing = 0.07, Hit = 0.14 },
+	length = 0.56, priority = "Action", group = "action", recover = 0.4,
+	markers = { Swing = 0.14, Hit = 0.2 },
 	trail = { "Left Arm" },
 	keys = {
-		{ t = 0, ease = "Quad", dir = "Out", pose = GUARD },
-		-- load: dip onto the lead leg, lead arm swings wide
-		{ t = 0.07, ease = "Quart", dir = "Out", pose = {
-			Torso = { -10, 6, 6, 0, -0.38, 0 },
-			Head = { 10, -6, -4 },
-			RightArm = { 102, 0, -46, 0, 0, 0.15 },
-			LeftArm = { 88, 0, -62, 0, 0.1, 0 },
-			RightLeg = { 0, 0, 12 },
-			LeftLeg = { 28, 0, -10 },
+		{ t = 0, ease = "Sine", dir = "Out", pose = GUARD },
+		-- counter-move: tuck tighter, turn a hair away and sink
+		{ t = 0.05, ease = "Quad", dir = "Out", pose = {
+			Torso = { -13, -28, -3, 0.05, -0.44, 0 },
+			Head = { 13, 26, 3 },
+			RightArm = { 106, 0, -46, 0, 0, 0.12 },
+			LeftArm = { 114, 0, 38, 0, -0.05, 0.05 },
+			RightLeg = { 11, 0, 8 },
+			LeftLeg = { 27, 0, -8 },
 		} },
-		-- whip across
-		{ t = 0.14, ease = "Sine", dir = "Out", pose = {
-			Torso = { -14, -50, -6, 0, -0.36, -0.35 },
-			Head = { 10, 42, 4 },
-			RightArm = { 104, 0, -48, 0, 0, 0.25 },
-			LeftArm = { 94, 0, 36, 0, 0.05, -0.3 },
-			RightLeg = { -14, 0, 12 },
-			LeftLeg = { 30, 0, -8 },
+		-- coil: lead side opens, weight drops onto the front foot, arm wide
+		{ t = 0.115, ease = "Sine", dir = "InOut", pose = {
+			Torso = { -10, 12, 10, -0.22, -0.46, -0.05 },
+			Head = { 10, -14, -10 },
+			RightArm = { 112, 0, -52, 0, 0, 0.15 },
+			LeftArm = { 82, 0, -96, 0, 0.12, 0.1 },
+			RightLeg = { -11, 0, -1 },
+			LeftLeg = { 33, 0, 2 },
 		} },
-		{ t = 0.18, ease = "Quad", dir = "InOut", pose = {
-			Torso = { -15, -56, -7, 0, -0.37, -0.4 },
-			Head = { 11, 46, 5 },
-			RightArm = { 104, 0, -48, 0, 0, 0.25 },
-			LeftArm = { 96, 0, 44, 0, 0.05, -0.35 },
-			RightLeg = { -16, 0, 12 },
-			LeftLeg = { 31, 0, -8 },
+		-- tense beat
+		{ t = 0.14, ease = "Quad", dir = "In", pose = {
+			Torso = { -11, 16, 11, -0.24, -0.48, -0.05 },
+			Head = { 11, -18, -11 },
+			RightArm = { 113, 0, -53, 0, 0, 0.15 },
+			LeftArm = { 80, 0, -100, 0, 0.13, 0.12 },
+			RightLeg = { -12, 0, -3 },
+			LeftLeg = { 34, 0, 4 },
 		} },
-		{ t = 0.26, ease = "Back", dir = "Out", pose = {
-			Torso = { -11, -36, -3, 0, -0.3, -0.2 },
-			Head = { 9, 32, 2 },
-			RightArm = { 100, 0, -44, 0, 0, 0.15 },
-			LeftArm = { 92, 0, 22, 0, 0, -0.1 },
-			RightLeg = { -6, 0, 10 },
-			LeftLeg = { 28, 0, -6 },
+		-- impact: hips whip across, fist wraps around at head height
+		{ t = 0.2, ease = "Sine", dir = "Out", pose = {
+			Torso = { -16, -36, -10, 0.06, -0.46, -0.42 },
+			Head = { 14, 34, 10 },
+			RightArm = { 112, 0, -50, 0, 0.02, 0.2 },
+			LeftArm = { 116, 0, 10, 0, 0.08, -0.15 },
+			RightLeg = { 14, 0, 18 },
+			LeftLeg = { 22, 0, -5 },
 		} },
-		{ t = 0.37, ease = "Sine", dir = "InOut", pose = pose(GUARD, {
-			Torso = { -9, -12, 0, 0, -0.24, 0 },
-			Head = { 9, 12, 0 },
-		}) },
-		{ t = 0.46, pose = GUARD },
+		-- hang just past it
+		{ t = 0.245, ease = "Quad", dir = "InOut", pose = {
+			Torso = { -17, -43, -11, 0.08, -0.48, -0.46 },
+			Head = { 15, 41, 11 },
+			RightArm = { 113, 0, -50, 0, 0.02, 0.22 },
+			LeftArm = { 116, 0, 22, 0, 0.08, -0.12 },
+			RightLeg = { 16, 0, 17 },
+			LeftLeg = { 18, 0, -7 },
+		} },
+		-- follow-through: the swing carries the shoulders past the target
+		{ t = 0.285, ease = "Back", dir = "Out", pose = {
+			Torso = { -19, -62, -14, 0.1, -0.5, -0.42 },
+			Head = { 16, 58, 14 },
+			RightArm = { 110, 0, -46, 0, 0, 0.24 },
+			LeftArm = { 108, 0, 44, 0, 0.05, -0.05 },
+			RightLeg = { 23, 0, 12 },
+			LeftLeg = { 6, 0, -11 },
+		} },
+		-- rebound back toward the stance
+		{ t = 0.36, ease = "Sine", dir = "InOut", pose = {
+			Torso = { -10, -28, -2, 0.03, -0.3, -0.18 },
+			Head = { 10, 26, 2 },
+			RightArm = { 102, 0, -44, 0, 0.02, 0.12 },
+			LeftArm = { 112, 0, 30, 0, 0.04, -0.12 },
+			RightLeg = { 5, 0, 12 },
+			LeftLeg = { 22, 0, -8 },
+		} },
+		-- overshoot past guard the other way, bob down
+		{ t = 0.45, ease = "Sine", dir = "InOut", pose = {
+			Torso = { -12, -12, -1, 0, -0.34, 0 },
+			Head = { 12, 11, 1 },
+			RightArm = { 97, 0, -41, 0, -0.03, 0.1 },
+			LeftArm = { 104, 0, 27, 0, -0.04, -0.05 },
+			RightLeg = { 5, 0, 9 },
+			LeftLeg = { 33, 0, -1 },
+		} },
+		{ t = 0.56, pose = GUARD },
 	},
 }
 
+-- Right shovel hook to the body: pops up, sinks the hips into a deep level
+-- change with the fist loaded low by the hip, then the hips turn over and
+-- the fist digs up and in under the ribs.
+local M1B_SHOVEL_COIL = {
+	Torso = { -18, -38, -8, 0, -0.56, 0.06 },
+	Head = { 16, 36, 7 },
+	RightArm = { 18, -20, 26, 0, 0, 0.3 },
+	LeftArm = { 114, 0, 16, 0, 0, -0.22 },
+	RightLeg = { -24, 0, 28 },
+	LeftLeg = { 62, 0, -24 },
+}
 Data.M1_3 = {
-	length = 0.48, priority = "Action", group = "action", recover = 0.35,
-	markers = { Swing = 0.07, Hit = 0.15 },
+	length = 0.58, priority = "Action", group = "action", recover = 0.41,
+	markers = { Swing = 0.15, Hit = 0.21 },
 	trail = { "Right Arm" },
 	keys = {
-		{ t = 0, ease = "Quad", dir = "Out", pose = GUARD },
-		-- level change: drop the hips, fist low and loaded
-		{ t = 0.07, ease = "Quart", dir = "Out", pose = {
-			Torso = { -16, -38, -8, 0, -0.6, 0.1 },
-			Head = { 16, 32, 6 },
-			RightArm = { 40, 0, 14, 0, 0, 0.35 },
-			LeftArm = { 106, 0, 34, 0, 0, 0 },
-			RightLeg = { 4, 0, 18 },
-			LeftLeg = { 40, 0, -14 },
+		{ t = 0, ease = "Sine", dir = "Out", pose = GUARD },
+		-- counter-move: rises a touch and opens up before sinking
+		{ t = 0.05, ease = "Quad", dir = "Out", pose = {
+			Torso = { -5, -12, 3, 0, -0.08, -0.04 },
+			Head = { 5, 10, -2 },
+			RightArm = { 108, 0, -38, 0, 0.05, 0.05 },
+			LeftArm = { 114, 0, 26, 0, 0.04, -0.1 },
+			RightLeg = { 0, 0, 9 },
+			LeftLeg = { 22, 0, -5 },
 		} },
-		-- shovel up into the ribs
-		{ t = 0.15, ease = "Sine", dir = "Out", pose = {
-			Torso = { -26, 38, 6, 0, -0.66, -0.55 },
-			Head = { 22, -34, -4 },
-			RightArm = { 96, 0, -22, 0, -0.1, -0.45 },
-			LeftArm = { 92, 0, 46, 0, 0, 0.25 },
-			RightLeg = { 2, 0, 14 },
-			LeftLeg = { 50, 0, -12 },
-		} },
-		{ t = 0.19, ease = "Quad", dir = "InOut", pose = {
-			Torso = { -28, 44, 7, 0, -0.68, -0.62 },
-			Head = { 24, -38, -5 },
-			RightArm = { 100, 0, -20, 0, -0.1, -0.5 },
-			LeftArm = { 90, 0, 48, 0, 0, 0.28 },
-			RightLeg = { 2, 0, 14 },
-			LeftLeg = { 52, 0, -12 },
-		} },
-		{ t = 0.28, ease = "Back", dir = "Out", pose = {
-			Torso = { -16, 14, 2, 0, -0.42, -0.3 },
-			Head = { 14, -12, -1 },
-			RightArm = { 92, 0, -32, 0, 0, -0.1 },
-			LeftArm = { 100, 0, 36, 0, 0, 0.1 },
-			RightLeg = { 0, 0, 11 },
-			LeftLeg = { 32, 0, -8 },
-		} },
-		{ t = 0.39, ease = "Sine", dir = "InOut", pose = pose(GUARD, {
-			Torso = { -9, -26, 1, 0, -0.24, 0.05 },
-			Head = { 9, 24, -1 },
+		-- level change: hips drop, torso coils right, fist loaded low by the hip
+		{ t = 0.1, ease = "Sine", dir = "InOut", pose = M1B_SHOVEL_COIL },
+		-- coil peak: sinks a hair deeper and holds
+		{ t = 0.15, ease = "Quad", dir = "In", pose = pose(M1B_SHOVEL_COIL, {
+			Torso = { -20, -42, -10, 0, -0.6, 0.08 },
+			Head = { 18, 40, 8 },
+			RightArm = { 14, -22, 28, 0, 0, 0.34 },
+			RightLeg = { -26, 0, 30 },
+			LeftLeg = { 64, 0, -26 },
 		}) },
-		{ t = 0.48, pose = GUARD },
+		-- hips lead: torso turning over and stepping in, fist still low
+		{ t = 0.18, ease = "Linear", pose = {
+			Torso = { -22, -2, -2, 0, -0.62, -0.3 },
+			Head = { 20, 4, 2 },
+			RightArm = { 42, -10, 24, 0, 0, 0.1 },
+			LeftArm = { 116, 0, 34, 0, 0, 0.1 },
+			RightLeg = { -28, 0, 12 },
+			LeftLeg = { 62, 0, -12 },
+		} },
+		-- impact: fist driven up and in under the ribs, lead hand at the chin
+		{ t = 0.21, ease = "Quad", dir = "Out", pose = {
+			Torso = { -22, 38, 8, 0, -0.58, -0.62 },
+			Head = { 20, -34, -6 },
+			RightArm = { 118, 0, 16, 0, 0, -0.45 },
+			LeftArm = { 126, 0, 50, 0, 0, 0.3 },
+			RightLeg = { -26, 0, -4 },
+			LeftLeg = { 60, 0, 0 },
+		} },
+		-- hang just past it
+		{ t = 0.25, ease = "Sine", dir = "Out", pose = {
+			Torso = { -23, 44, 10, 0, -0.56, -0.68 },
+			Head = { 21, -38, -7 },
+			RightArm = { 124, 0, 12, 0, 0, -0.5 },
+			LeftArm = { 126, 0, 52, 0, 0, 0.32 },
+			RightLeg = { -27, 0, -4 },
+			LeftLeg = { 60, 0, 0 },
+		} },
+		-- follow-through: the fist keeps rising across, the body lifts
+		{ t = 0.31, ease = "Back", dir = "Out", pose = {
+			Torso = { -16, 52, 12, 0, -0.44, -0.56 },
+			Head = { 16, -44, -8 },
+			RightArm = { 140, 0, -8, 0, 0, -0.4 },
+			LeftArm = { 118, 0, 46, 0, 0, 0.25 },
+			RightLeg = { -20, 0, 0 },
+			LeftLeg = { 46, 0, -4 },
+		} },
+		-- rebound back toward guard
+		{ t = 0.4, ease = "Sine", dir = "InOut", pose = {
+			Torso = { -12, 10, 2, 0, -0.32, -0.2 },
+			Head = { 12, -8, -2 },
+			RightArm = { 100, 0, -36, 0, 0, 0.05 },
+			LeftArm = { 108, 0, 34, 0, 0, 0.05 },
+			RightLeg = { -6, 0, 10 },
+			LeftLeg = { 34, 0, -8 },
+		} },
+		-- overshoot past guard
+		{ t = 0.49, ease = "Sine", dir = "InOut", pose = pose(GUARD, {
+			Torso = { -10, -28, -1, 0, -0.27, 0.04 },
+			Head = { 10, 26, 1 },
+			RightArm = { 103, 0, -44, 0, 0, 0.12 },
+			LeftArm = { 110, 0, 27, 0, 0, -0.06 },
+		}) },
+		{ t = 0.58, pose = GUARD },
 	},
 }
 
+-- Right roundhouse: dips, springs up onto the lead foot with the rear knee
+-- chambered up and out while leaning away, then the hips whip over and the
+-- shin cuts through at chest-to-head height, carries past and re-plants.
+local M1B_KICK_CHAMBER = {
+	Torso = { 12, -30, 20, 0, -0.02, 0.15 },
+	Head = { -10, 28, -18 },
+	RightArm = { 96, -10, -58, 0, 0, 0.1 },
+	LeftArm = { 120, 0, -6, 0, 0, -0.15 },
+	RightLeg = { 76, -10, 20 },
+	LeftLeg = { -10, 0, -18 },
+}
 Data.M1_4 = {
-	length = 0.56, priority = "Action", group = "action", recover = 0.4,
-	markers = { Swing = 0.1, Hit = 0.18 },
+	length = 0.64, priority = "Action", group = "action", recover = 0.44,
+	markers = { Swing = 0.17, Hit = 0.24 },
 	trail = { "Right Leg" },
 	keys = {
-		{ t = 0, ease = "Quad", dir = "Out", pose = GUARD },
-		-- chamber: wind the hips away, rear knee comes up and out
-		{ t = 0.1, ease = "Quart", dir = "Out", pose = {
-			Torso = { 2, -46, 8, 0, -0.18, 0.15 },
-			Head = { 2, 40, -6 },
-			RightArm = { 30, 0, 20, 0, 0, 0.2 },
-			LeftArm = { 100, 0, 14 },
-			RightLeg = { 64, 0, 36 },
-			LeftLeg = { 4, 0, -6 },
+		{ t = 0, ease = "Sine", dir = "Out", pose = GUARD },
+		-- counter-move: sinks into the legs before springing up
+		{ t = 0.05, ease = "Cubic", dir = "Out", pose = {
+			Torso = { -12, -14, -2, 0, -0.36, 0.04 },
+			Head = { 12, 14, 2 },
+			RightArm = { 104, 0, -46, 0, 0, 0.12 },
+			LeftArm = { 104, 0, 32, 0, 0, -0.05 },
+			RightLeg = { -16, 0, 20 },
+			LeftLeg = { 42, 0, -16 },
 		} },
-		-- roundhouse: hips turn over, leg whips through at head height
-		{ t = 0.18, ease = "Sine", dir = "Out", pose = {
-			Torso = { 6, 50, 26, 0, -0.08, -0.2 },
-			Head = { 0, -44, -18 },
-			RightArm = { -10, 0, 30 },
-			LeftArm = { 70, 0, -60 },
-			RightLeg = { 6, 40, 96 },
-			LeftLeg = { 8, 0, -20 },
-		} },
-		-- follow-through
-		{ t = 0.24, ease = "Quad", dir = "InOut", pose = {
-			Torso = { 6, 72, 28, 0, -0.1, -0.25 },
-			Head = { 0, -62, -20 },
-			RightArm = { -16, 0, 34 },
-			LeftArm = { 66, 0, -64 },
-			RightLeg = { 6, 14, 92 },
-			LeftLeg = { 8, 0, -20 },
-		} },
-		-- recoil the leg and plant it
-		{ t = 0.34, ease = "Back", dir = "Out", pose = {
-			Torso = { -6, 30, 8, 0, -0.32, -0.2 },
-			Head = { 6, -26, -6 },
-			RightArm = { 70, 0, -20 },
-			LeftArm = { 96, 0, 10 },
-			RightLeg = { 40, 0, 26 },
-			LeftLeg = { 14, 0, -10 },
-		} },
-		{ t = 0.45, ease = "Sine", dir = "InOut", pose = pose(GUARD, {
-			Torso = { -10, -10, 0, 0, -0.3, 0 },
-			Head = { 10, 10, 0 },
+		-- chamber: up onto the lead foot, knee up and out, leaning away
+		{ t = 0.12, ease = "Sine", dir = "InOut", pose = M1B_KICK_CHAMBER },
+		-- coil peak: winds a little further and holds
+		{ t = 0.17, ease = "Quad", dir = "In", pose = pose(M1B_KICK_CHAMBER, {
+			Torso = { 14, -36, 24, 0, 0.02, 0.18 },
+			Head = { -12, 34, -21 },
+			RightArm = { 98, -10, -64, 0, 0, 0.12 },
+			RightLeg = { 82, -10, 24 },
+			LeftLeg = { -12, 0, -22 },
 		}) },
-		{ t = 0.56, pose = GUARD },
+		-- hips lead: torso snaps over, the leg trails flat out to the side
+		{ t = 0.205, ease = "Linear", pose = {
+			Torso = { 6, 18, 24, 0, 0.02, -0.05 },
+			Head = { 0, -16, -20 },
+			RightArm = { 20, 0, 6, 0, 0, 0 },
+			LeftArm = { 112, 0, 20, 0, 0, 0 },
+			RightLeg = { 22, 0, 86 },
+			LeftLeg = { -6, 0, -22 },
+		} },
+		-- impact: shin through the target high, rear arm flung down and back
+		{ t = 0.24, ease = "Quad", dir = "Out", pose = {
+			Torso = { 6, 58, 28, 0, -0.02, -0.25 },
+			Head = { -2, -50, -22 },
+			RightArm = { -60, 0, -36, 0, 0, 0 },
+			LeftArm = { 108, 0, 46, 0, 0, 0 },
+			RightLeg = { 10, 30, 100 },
+			LeftLeg = { -4, 0, -24 },
+		} },
+		-- hang just past it
+		{ t = 0.28, ease = "Sine", dir = "In", pose = {
+			Torso = { 6, 66, 29, 0, -0.03, -0.28 },
+			Head = { -2, -56, -23 },
+			RightArm = { -66, 0, -36, 0, 0, 0 },
+			LeftArm = { 106, 0, 48, 0, 0, 0 },
+			RightLeg = { 10, 22, 101 },
+			LeftLeg = { -4, 0, -24 },
+		} },
+		-- follow-through: carries past the target and starts to drop
+		{ t = 0.34, ease = "Back", dir = "Out", pose = {
+			Torso = { 4, 92, 24, 0, -0.1, -0.25 },
+			Head = { 0, -64, -18 },
+			RightArm = { -30, 0, 20, 0, 0, 0 },
+			LeftArm = { 84, 0, -30, 0, 0, 0 },
+			RightLeg = { 14, 10, 80 },
+			LeftLeg = { -2, 0, -20 },
+		} },
+		-- re-plant: leg comes down behind, absorbs into the legs
+		{ t = 0.42, ease = "Sine", dir = "InOut", pose = {
+			Torso = { -14, 24, 4, 0, -0.46, -0.1 },
+			Head = { 14, -20, -4 },
+			RightArm = { 88, 0, -30, 0, 0, 0.05 },
+			LeftArm = { 104, 0, 22, 0, 0, 0 },
+			RightLeg = { -28, 0, 14 },
+			LeftLeg = { 50, 0, -10 },
+		} },
+		-- overshoot past guard
+		{ t = 0.52, ease = "Sine", dir = "InOut", pose = pose(GUARD, {
+			Torso = { -10, -28, -1, 0, -0.28, 0.04 },
+			Head = { 10, 26, 1 },
+			RightArm = { 103, 0, -44, 0, 0, 0.12 },
+			LeftArm = { 110, 0, 27, 0, 0, -0.06 },
+		}) },
+		{ t = 0.64, pose = GUARD },
 	},
 }
 
