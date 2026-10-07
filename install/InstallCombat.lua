@@ -456,43 +456,6 @@ Data.Run = {
 	},
 }
 
--- Guarded walk, authored for 16 studs/s (the client scales the playback).
-local WALK_A = {
-	Torso = { -10, -8, 0, 0, -0.3, 0 },
-	Head = { 10, 8, 0 },
-	RightArm = { 98, 0, -40, 0, 0, 0.15 },
-	LeftArm = { 112, 0, 30, 0, 0, -0.1 },
-	RightLeg = { 42, 0, 4 },
-	LeftLeg = { -18, 0, -4 },
-}
-local WALK_PASS = {
-	Torso = { -8, -14, 0, 0, -0.08, 0 },
-	Head = { 8, 14, 0 },
-	RightArm = { 104, 0, -42, 0, 0.04, 0.1 },
-	LeftArm = { 106, 0, 28, 0, 0.04, -0.05 },
-	RightLeg = { 18, 0, 4 },
-	LeftLeg = { 4, 0, -4 },
-}
-
--- Sprint: hard forward lean, big arm pumps, high knees, a bouncing flight
--- phase between strides. Authored for 28 studs/s.
-local RUN_A = {
-	Torso = { -28, 10, 0, 0, -0.22, 0 },
-	Head = { 24, -10, 0 },
-	RightArm = { -40, 0, 8 },
-	LeftArm = { 96, 0, 14 },
-	RightLeg = { 64, 0, 4 },
-	LeftLeg = { -12, 0, -4 },
-}
-local RUN_PASS = {
-	Torso = { -24, 0, 0, 0, 0.1, 0 },
-	Head = { 22, 0, 0 },
-	RightArm = { 20, 0, 10 },
-	LeftArm = { 36, 0, -10 },
-	RightLeg = { 14, 0, 4 },
-	LeftLeg = { 66, 0, -4 },
-}
-
 -- Take-off: a quick crouch-and-spring, then tucks and holds until falling.
 Data.Jump = {
 	length = 0.34, holdLast = true, priority = "Movement", group = "base",
