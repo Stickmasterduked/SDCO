@@ -61,6 +61,10 @@ local function getTrack(model, name)
 			local root = model:FindFirstChild("HumanoidRootPart")
 			if root then
 				Effects.sound("Swing", root, heavy and 0.65 or 0.45, heavy and 0.8 or 1)
+				-- your own strike leaving the windup nudges the camera with it
+				if model == player.Character and root:IsA("BasePart") then
+					CameraFX.punch(root.CFrame.LookVector, heavy and 0.35 or 0.12)
+				end
 			end
 			local hitAt = data.markers.Hit or data.markers.Swing
 			Effects.swingTrails(model, (hitAt - data.markers.Swing) + 0.1, data.trail)

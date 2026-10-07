@@ -10,6 +10,7 @@
 
 	On top of the clips sits a procedural layer that makes everything feel
 	alive and heavy:
+	  - micro-motion and breathing, so nothing is ever perfectly still
 	  - overlap: the head and arms lag behind fast torso turns and whip
 	    through when the torso stops (follow-through on every strike)
 	  - lean into movement and bank into turns
@@ -285,6 +286,15 @@ local DRAG = {
 }
 local MAX_DRAG_KICK = 420
 
+-- Micro-motion: slow noise (degrees) so no joint ever sits perfectly still.
+local MICRO = {
+	Torso = 0.9,
+	Head = 2.6,
+	RightArm = 2.4,
+	LeftArm = 2.4,
+}
+local MICRO_SEED = { Torso = 1.7, Head = 5.3, RightArm = 9.1, LeftArm = 13.9 }
+
 local JOINT_ROTATION = {
 	Torso = CFrame.fromOrientation(-math.pi / 2, math.pi, 0),
 }
@@ -349,6 +359,16 @@ function Controller:procedural(dt, frozen)
 		o[4] += x or 0
 		o[5] += y or 0
 		o[6] += z or 0
+	end
+
+	-- micro-motion
+	local drift = self.clock * 0.8
+	for joint, amount in pairs(MICRO) do
+		local seed = MICRO_SEED[joint]
+		add(joint,
+			math.noise(drift, seed) * amount,
+			math.noise(seed, drift) * amount * 0.6,
+			math.noise(drift + seed, seed * 0.5) * amount * 0.5)
 	end
 
 	-- breathing

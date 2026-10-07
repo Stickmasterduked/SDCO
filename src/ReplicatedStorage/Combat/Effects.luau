@@ -1,7 +1,9 @@
 --[[
-	Client-side combat VFX and sound, battlegrounds style: every hit stacks a
-	neon impact flash, a shock ring, streak lines and sparks; dashes leave
-	afterimages and wind rings; slams crack the ground into a crater of rocks.
+	Client-side combat VFX and sound, battlegrounds style. Regular hits stay
+	clean: the struck body flashes (a Highlight) with a small crisp spark.
+	The big moves (finishers, criticals, launchers, slams, parries, guard
+	breaks) add shock rings, streaks and debris. Dashes leave afterimages and
+	wind rings; slams crack the ground into a crater of rocks.
 
 	Most shapes are procedural (neon parts animated every frame), so they need
 	no uploads. The custom textures in Config.Textures add sparks, smoke and
@@ -535,6 +537,49 @@ local function groundBurst(position, radius, color)
 end
 
 ------------------------------------------------------------------------
+-- Body flash: a Highlight over the whole character that fades out fast.
+-- The cleanest hit read there is; one is reused per body (Roblox caps the
+-- number of active Highlights).
+
+local flashes = setmetatable({}, { __mode = "k" })
+
+function Effects.bodyFlash(model, color, duration, fill)
+	if typeof(model) ~= "Instance" or not model.Parent then
+		return
+	end
+	local entry = flashes[model]
+	if not entry or not entry.highlight.Parent then
+		local highlight = Instance.new("Highlight")
+		highlight.Name = "CombatFlash"
+		highlight.DepthMode = Enum.HighlightDepthMode.Occluded
+		highlight.Adornee = model
+		highlight.Enabled = false
+		highlight.Parent = model
+		entry = { highlight = highlight, token = 0 }
+		flashes[model] = entry
+	end
+	entry.token += 1
+	local token = entry.token
+	local highlight = entry.highlight
+	local fill0 = fill or 0.25
+	highlight.FillColor = color
+	highlight.OutlineColor = color
+	highlight.FillTransparency = fill0
+	highlight.OutlineTransparency = 0
+	highlight.Enabled = true
+	animate(duration, function(alpha)
+		if entry.token == token then
+			highlight.FillTransparency = fill0 + (1 - fill0) * alpha ^ 0.7
+			highlight.OutlineTransparency = alpha ^ 1.6
+		end
+	end, function()
+		if entry.token == token then
+			highlight.Enabled = false
+		end
+	end)
+end
+
+------------------------------------------------------------------------
 -- Afterimages
 
 local BODY_PARTS = { "Head", "Torso", "Right Arm", "Left Arm", "Right Leg", "Left Leg" }
@@ -780,78 +825,72 @@ function Effects.play(kind, position, attacker, defender, info)
 	local direction = hitDirection(position, attacker, defender)
 
 	if kind == "Hit" then
+		-- regular strikes: a white body flash and a small crisp spark, no explosion
 		local at = anchorAt(position, 1.5)
 		Effects.sound("Hit", at, 0.75)
-		burst(position, HOT, 0.6, 3.4, 0.14)
-		burst(position, WARM, 1.2, 4.4, 0.2, 0.55)
-		ring(facing(position, direction), WARM, 0.4, 3.2, 0.25, 0.2, 0.2, 14)
-		streaks(position, direction, 6, HOT, 2.4, 3.5, 55, 0.18)
-		flipbook(at, TEX.impact, { size0 = 2.2, size1 = 5, duration = 0.26, color = WARM })
-		sparks(at, 9, WARM, 42)
-		return 0.22
+		Effects.bodyFlash(defender, HOT, 0.16, 0.15)
+		burst(position, HOT, 0.3, 1.8, 0.08, 0.2)
+		streaks(position, direction, 4, HOT, 1.5, 2.2, 40, 0.12, 0.06)
+		sparks(at, 5, WARM, 34)
+		return 0.16
 	elseif kind == "HeavyHit" then
 		local at = anchorAt(position, 2)
 		local big = info == "Finisher" or info == "Critical"
 		Effects.sound("HeavyHit", at, 0.9, big and 0.85 or 1)
-		Effects.sound("Hit", at, 0.6, 0.8)
-		burst(position, HOT, 1, big and 6.5 or 5, 0.18)
-		burst(position, WARM, 1.6, big and 8 or 6.5, 0.28, 0.5)
-		ring(facing(position, direction), HOT, 0.6, big and 7 or 5.5, 0.45, 0.3, 0.1, 22)
-		ring(facing(position + direction * 1.5, direction), WARM, 0.4, big and 4.5 or 3.5, 0.3, 0.26, 0.3, 18)
-		streaks(position, direction, big and 14 or 10, HOT, 3.4, big and 7 or 5.5, 50, 0.24, 0.14)
-		flipbook(at, TEX.impact, { size0 = 3.2, size1 = 8, duration = 0.32, color = WARM, onTop = true })
-		sparks(at, 18, WARM, 56)
-		smoke(at, 4, 1.4, 7)
-		glow(at, 4, WARM, 0.18)
-		flash(at, WARM, 5, 14, 0.22)
-		if defender and big then
-			Effects.knockback(defender, 0.35)
+		Effects.bodyFlash(defender, HOT, big and 0.3 or 0.22, 0.05)
+		burst(position, HOT, 0.5, big and 4.6 or 3, 0.13, 0.1)
+		ring(facing(position, direction), HOT, 0.5, big and 6 or 4, big and 0.35 or 0.25, 0.24, 0.15, 20)
+		streaks(position, direction, big and 9 or 6, HOT, big and 3 or 2.2, big and 6 or 4, 45, 0.2, 0.09)
+		sparks(at, big and 16 or 10, WARM, 52)
+		if big then
+			Effects.sound("Hit", at, 0.6, 0.8)
+			smoke(at, 3, 1.3, 7)
+			flash(at, WARM, 4, 12, 0.2)
+			if defender then
+				Effects.knockback(defender, 0.35)
+			end
 		end
-		return big and 0.6 or 0.42
+		return big and 0.55 or 0.36
 	elseif kind == "Block" then
 		local at = anchorAt(position, 1.5)
 		Effects.sound("Block", at, 0.7, 0.9)
-		burst(position, STEEL, 0.5, 2.6, 0.12, 0.2)
-		ring(facing(position, direction), STEEL, 0.5, 2.8, 0.2, 0.18, 0.25, 14)
-		sparks(at, 7, STEEL, 30)
-		smoke(at, 2, 0.9, 4)
-		return 0.12
+		Effects.bodyFlash(defender, STEEL, 0.14, 0.6)
+		burst(position, STEEL, 0.3, 1.5, 0.08, 0.35)
+		sparks(at, 6, STEEL, 28)
+		return 0.1
 	elseif kind == "Parry" then
 		local at = anchorAt(position, 1.5)
 		Effects.sound("Parry", at, 0.85)
-		burst(position, HOT, 0.8, 4.5, 0.16)
-		burst(position, GOLD, 1.2, 6, 0.24, 0.45)
-		ring(facing(position, direction), GOLD, 0.6, 6, 0.4, 0.3, 0.05, 22)
-		ring(facing(position, Vector3.yAxis), GOLD, 0.4, 4.5, 0.25, 0.26, 0.3, 18)
-		streaks(position, nil, 14, GOLD, 2.6, 5, 180, 0.24, 0.1)
-		flipbook(at, TEX.parry, { size0 = 3, size1 = 8.5, duration = 0.34, color = GOLD, onTop = true })
-		sparks(at, 24, GOLD, 64)
-		flash(at, GOLD, 7, 16, 0.22)
-		return 0.32
+		Effects.bodyFlash(defender, GOLD, 0.26, 0.3)
+		Effects.bodyFlash(attacker, GOLD, 0.2, 0.7)
+		burst(position, HOT, 0.5, 3.4, 0.12, 0.1)
+		ring(facing(position, direction), GOLD, 0.5, 5, 0.3, 0.26, 0.1, 20)
+		streaks(position, nil, 10, GOLD, 2.2, 4, 180, 0.2, 0.08)
+		sparks(at, 18, GOLD, 60)
+		flash(at, GOLD, 5, 14, 0.2)
+		return 0.3
 	elseif kind == "GuardBreak" then
 		local center = position + Vector3.new(0, 0.6, 0)
 		local at = anchorAt(center, 2)
 		Effects.sound("GuardBreak", at, 0.95)
 		Effects.sound("HeavyHit", at, 0.7, 0.85)
-		burst(center, HOT, 1, 6, 0.2)
-		burst(center, EMBER, 1.6, 7.5, 0.3, 0.45)
-		ring(facing(center, direction), EMBER, 0.6, 6.5, 0.45, 0.32, 0.1, 22)
-		shards(center, direction, 16, Color3.fromRGB(200, 225, 255))
-		streaks(center, direction, 10, EMBER, 3, 6, 70, 0.26, 0.12)
-		flipbook(at, TEX.parry, { size0 = 3.5, size1 = 10, duration = 0.4, color = EMBER, onTop = true })
-		sparks(at, 26, EMBER, 58)
-		smoke(at, 6, 1.6, 7)
-		flash(at, EMBER, 7, 16, 0.3)
-		return 0.65
+		Effects.bodyFlash(defender, EMBER, 0.4, 0.2)
+		burst(center, HOT, 0.8, 4.5, 0.16, 0.1)
+		ring(facing(center, direction), EMBER, 0.6, 6, 0.4, 0.3, 0.1, 22)
+		shards(center, direction, 14, Color3.fromRGB(200, 225, 255))
+		sparks(at, 20, EMBER, 56)
+		smoke(at, 3, 1.4, 6)
+		flash(at, EMBER, 6, 14, 0.26)
+		return 0.6
 	elseif kind == "Slam" then
 		local at = anchorAt(position + Vector3.new(0, 0.5, 0), 2)
 		Effects.sound("HeavyHit", at, 0.95, 0.72)
-		burst(position + Vector3.new(0, 0.5, 0), HOT, 1, 6, 0.2)
-		groundBurst(position, 15)
+		Effects.bodyFlash(defender, HOT, 0.24, 0.2)
+		burst(position + Vector3.new(0, 0.5, 0), HOT, 0.8, 4.5, 0.16, 0.15)
+		groundBurst(position, 13)
 		crater(position, 5.5, 12)
-		streaks(position, Vector3.yAxis, 10, WARM, 3, 6, 60, 0.26, 0.12)
-		sparks(at, 14, WARM, 44)
-		return 0.7
+		sparks(at, 12, WARM, 44)
+		return 0.65
 	elseif kind == "Feint" then
 		local at = anchorAt(position, 1)
 		Effects.sound("Feint", at, 0.35, 1.25)
@@ -892,12 +931,12 @@ function Effects.attachTrails(model)
 			trail.Attachment1 = a1
 			trail.Texture = TEX.trail
 			trail.TextureMode = Enum.TextureMode.Stretch
-			trail.Lifetime = 0.16
+			trail.Lifetime = 0.13
 			trail.MinLength = 0.05
-			trail.LightEmission = 0.8
+			trail.LightEmission = 0.7
 			trail.FaceCamera = true
-			trail.Color = ColorSequence.new(Color3.fromRGB(255, 244, 228))
-			trail.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.25), NumberSequenceKeypoint.new(1, 1) })
+			trail.Color = ColorSequence.new(Color3.fromRGB(255, 248, 238))
+			trail.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 1) })
 			trail.WidthScale = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0.2) })
 			trail.Enabled = false
 			trail.Parent = limb

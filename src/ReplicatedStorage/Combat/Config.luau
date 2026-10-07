@@ -60,7 +60,7 @@ Config.RollSpeed = 76 -- peak speed; eases out to ~12 studs total
 Config.AirDashSpeed = 66
 Config.DashOrbitRange = 16 -- side dashes orbit an opponent this close
 
-Config.AttackWalkSpeed = 13
+Config.AttackWalkSpeed = 10 -- low, so the strikes' own lunges carry the movement
 Config.StunWalkSpeed = 5
 
 -- Engagement: attacks soft-turn you toward the enemy in front of you so
@@ -116,22 +116,22 @@ Config.HitStop = {
 ]]
 Config.Attacks = {
 	M1_1 = {
-		anim = "M1_1", damage = 10, posture = 9, hitstun = 0.45,
+		anim = "M1_1", damage = 10, posture = 9, hitstun = 0.5,
 		range = 5.8, width = 4.5, knockback = 3, lunge = { 9, 0.1 },
 		feintable = true, isM1 = true,
 	},
 	M1_2 = {
-		anim = "M1_2", damage = 10, posture = 9, hitstun = 0.45,
+		anim = "M1_2", damage = 10, posture = 9, hitstun = 0.5,
 		range = 5.8, width = 5, knockback = 3, lunge = { 8, 0.1 },
 		react = "HitFrontB", feintable = true, isM1 = true,
 	},
 	M1_3 = {
-		anim = "M1_3", damage = 10, posture = 10, hitstun = 0.48,
+		anim = "M1_3", damage = 10, posture = 10, hitstun = 0.53,
 		range = 5.6, width = 4.5, knockback = 3, lunge = { 9, 0.1 },
 		react = "HitFrontC", feintable = true, isM1 = true,
 	},
 	M1_4 = {
-		anim = "M1_4", damage = 10, posture = 11, hitstun = 0.5,
+		anim = "M1_4", damage = 10, posture = 11, hitstun = 0.64,
 		range = 6.2, width = 5.5, knockback = 5, lunge = { 6, 0.12 },
 		feintable = true, isM1 = true,
 	},
