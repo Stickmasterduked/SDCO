@@ -1,3 +1,4 @@
 sourcemap.json
 previews/
 __pycache__/
+.claude/worktrees/
