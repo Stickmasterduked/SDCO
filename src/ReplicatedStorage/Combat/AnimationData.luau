@@ -1684,17 +1684,6 @@ Data.RunningAttack = {
 
 -- Superman punch off a sprint: launches horizontal with the fist leading.
 
--- Critical (R): a long, readable charge with the body coiling and shaking,
--- then a corkscrew punch that lunges forward on the hit.
-local CRIT_COIL = {
-	Torso = { 6, -72, -6, 0, -0.5, 0.35 },
-	Head = { 2, 60, 4 },
-	RightArm = { 0, -40, 80, 0, 0, 0.35 },
-	LeftArm = { 98, 0, 10, 0, 0, -0.3 },
-	RightLeg = { -14, 0, 16 },
-	LeftLeg = { 34, 0, -12 },
-}
-
 -- Feint: the swing is pulled with a shoulder roll and a hop back to guard.
 Data.Feint = {
 	length = 0.32, priority = "Action", group = "action",
