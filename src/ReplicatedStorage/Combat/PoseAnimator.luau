@@ -113,14 +113,23 @@ local function sample(keys, time)
 	if time <= keys[1].t then
 		return keys[1].cframe
 	end
-	for i = 1, #keys - 1 do
-		local a, b = keys[i], keys[i + 1]
-		if time < b.t then
-			local alpha = (time - a.t) / (b.t - a.t)
-			return a.cframe:Lerp(b.cframe, ease(alpha, a.style, a.direction))
+	local count = #keys
+	if time >= keys[count].t then
+		return keys[count].cframe
+	end
+	-- binary search: detailed clips have dozens of keys
+	local lo, hi = 1, count
+	while hi - lo > 1 do
+		local mid = (lo + hi) // 2
+		if keys[mid].t <= time then
+			lo = mid
+		else
+			hi = mid
 		end
 	end
-	return keys[#keys].cframe
+	local a, b = keys[lo], keys[hi]
+	local alpha = (time - a.t) / (b.t - a.t)
+	return a.cframe:Lerp(b.cframe, ease(alpha, a.style, a.direction))
 end
 
 ------------------------------------------------------------------------

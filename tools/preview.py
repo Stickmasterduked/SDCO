@@ -252,7 +252,9 @@ def render(name, data, fps=None, out_dir="previews", window=None):
         lo, hi = window or (0, data["length"])
         times = list(np.arange(lo, hi + 1e-6, 1 / fps))
     else:
-        times = sorted({k["t"] for k in data["keys"]} | set(markers.values()))
+        # detailed clips carry their authored beats in sourceKeys
+        beats = data.get("sourceKeys") or data["keys"]
+        times = sorted({k["t"] for k in beats} | set(markers.values()))
     views = ["side", "front", "3/4"]
     fig, axes = plt.subplots(len(views), len(times), figsize=(2.3 * len(times), 2.4 * len(views)), squeeze=False)
     for col, t in enumerate(times):
