@@ -1289,6 +1289,8 @@ Data.Finisher = {
 	},
 }
 
+-- Critical (R): a long, readable charge with the body coiling and shaking,
+-- then a corkscrew punch that lunges forward on the hit.
 Data.Critical = {
 	length = 1.12, priority = "Action", group = "action", recover = 0.9,
 	markers = { Swing = 0.5, Hit = 0.58 },
