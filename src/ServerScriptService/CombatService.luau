@@ -9,7 +9,8 @@
 	they block or dash out, the juggle times out, or they get slammed.
 
 	The client only sends inputs. Timing, hit detection, damage, posture and
-	parry resolution all happen here.
+	parry resolution all happen here. Effects carry the attack kind so every
+	client can scale its hit effects, hit-stop and camera kick to the move.
 ]]
 
 local CollectionService = game:GetService("CollectionService")
@@ -59,8 +60,9 @@ local function stopAnim(c, name, predicted)
 	playAnim(c, name, predicted, true)
 end
 
-local function effect(kind, position, attacker, defender)
-	Remotes.Effect:FireAllClients(kind, position, attacker and attacker.model, defender and defender.model)
+-- `info` is the attack kind for hits, or the direction for a dash.
+local function effect(kind, position, attacker, defender, info)
+	Remotes.Effect:FireAllClients(kind, position, attacker and attacker.model, defender and defender.model, info)
 end
 
 -- Movement runs where the character's physics lives: the owning client for
@@ -79,6 +81,10 @@ end
 
 local function dash(c, velocity, duration)
 	motion(c, "dash", velocity, duration)
+end
+
+local function isAirborne(c)
+	return c.humanoid.FloorMaterial == Enum.Material.Air
 end
 
 local function stopMotion(c)
@@ -114,7 +120,7 @@ end
 
 local function applyMovement(c)
 	c.humanoid.WalkSpeed = walkSpeedFor(c)
-	c.humanoid.JumpHeight = (c.state == "Idle") and 7.2 or 0
+	c.humanoid.JumpHeight = (c.state == "Idle") and Config.JumpHeight or 0
 end
 
 local function setState(c, state, duration)
@@ -239,13 +245,13 @@ local function findTarget(c, attack)
 	return best
 end
 
-local function guardBreak(defender, attacker, attack)
+local function guardBreak(defender, attacker, attack, kind)
 	defender.attack = nil
 	defender.combo = 0
 	defender.blockReadyAt = now() + Config.GuardBreakStun + Config.BlockCooldown
 	releaseJuggle(defender)
 	setPosture(defender, 0)
-	effect("GuardBreak", defender.root.Position, attacker, defender)
+	effect("GuardBreak", defender.root.Position, attacker, defender, kind)
 	if damage(defender, attack.damage * Config.GuardBreakDamageMult) then
 		return
 	end
@@ -254,7 +260,7 @@ local function guardBreak(defender, attacker, attack)
 	push(defender, flat(attacker.root.CFrame.LookVector) * 14, 0.15)
 end
 
-local function resolveHit(attacker, defender, attack)
+local function resolveHit(attacker, defender, attack, kind)
 	local t = now()
 	if not isAlive(defender) or t < defender.invincibleUntil then
 		return
@@ -289,7 +295,7 @@ local function resolveHit(attacker, defender, attack)
 		stopMotion(attacker)
 		playAnim(attacker, "Parried")
 		playAnim(defender, "BlockImpact")
-		effect("Parry", contact, attacker, defender)
+		effect("Parry", contact, attacker, defender, kind)
 		if not isJuggled(defender, t) then
 			stopHover(attacker)
 		end
@@ -303,12 +309,12 @@ local function resolveHit(attacker, defender, attack)
 		defender.lastPostureGain = t
 
 		if defender.posture + postureDamage >= defender.maxPosture then
-			guardBreak(defender, attacker, attack)
+			guardBreak(defender, attacker, attack, kind)
 			return
 		end
 
 		setPosture(defender, defender.posture + postureDamage)
-		effect("Block", contact, attacker, defender)
+		effect("Block", contact, attacker, defender, kind)
 		playAnim(defender, "BlockImpact")
 		push(defender, flat(attacker.root.CFrame.LookVector) * 2.5, 0.08)
 		damage(defender, attack.damage * Config.ChipDamage)
@@ -316,8 +322,8 @@ local function resolveHit(attacker, defender, attack)
 	end
 
 	-- Clean hit: damage, interrupt, hitstun, knockback.
-	local heavy = attack.knockback >= 18 or attack.launcher or attack.slam
-	effect(heavy and "HeavyHit" or "Hit", contact, attacker, defender)
+	local heavy = attack.heavy or attack.knockback >= 18 or attack.launcher or attack.slam
+	effect(heavy and "HeavyHit" or "Hit", contact, attacker, defender, kind)
 	if damage(defender, attack.damage) then
 		releaseJuggle(defender)
 		return
@@ -347,13 +353,21 @@ local function resolveHit(attacker, defender, attack)
 		local fall = math.max(0, defender.root.Position.Y - ground.Y - 3)
 		push(defender, direction * attack.knockback + Vector3.new(0, -Config.SlamSpeed, 0), 0.12)
 		task.delay(math.min(0.35, fall / Config.SlamSpeed), function()
-			effect("Slam", groundBelow(defender), attacker, defender)
+			effect("Slam", groundBelow(defender), attacker, defender, kind)
 		end)
 		return
 	end
 
 	setState(defender, "Stunned", attack.hitstun)
-	playAnim(defender, facing and "HitFront" or "HitBack")
+	local react
+	if attack.react == "Knockback" then
+		react = "Knockback"
+	elseif not facing then
+		react = "HitBack"
+	else
+		react = attack.react or "HitFront"
+	end
+	playAnim(defender, react)
 
 	if attack.juggle then
 		-- Launch (or keep) them in the air for a follow-up.
@@ -377,7 +391,7 @@ local function resolveHit(attacker, defender, attack)
 		releaseJuggle(defender)
 	end
 
-	push(defender, direction * attack.knockback + Vector3.new(0, attack.launch or 0, 0), 0.15)
+	push(defender, direction * attack.knockback + Vector3.new(0, attack.launch or 0, 0), attack.pushTime or 0.15)
 end
 
 local function startAttack(c, kind, predicted)
@@ -414,7 +428,7 @@ local function startAttack(c, kind, predicted)
 
 		local target = findTarget(c, attack)
 		if target then
-			resolveHit(c, target, attack)
+			resolveHit(c, target, attack, kind)
 		end
 		if c.token ~= token then
 			return
@@ -464,7 +478,7 @@ function CombatService.m1(c, options, predicted)
 	if airborne then
 		-- In the air: keep juggling, and the last hit (or a lone jump attack) slams.
 		if juggleTargetOf(c, t) and c.combo + 1 < Config.ComboLength then
-			kind = (c.combo % 2 == 0) and "AirPunchRight" or "AirPunchLeft"
+			kind = Config.AirChain[c.combo % #Config.AirChain + 1]
 		else
 			kind = "Downslam"
 		end
@@ -473,9 +487,9 @@ function CombatService.m1(c, options, predicted)
 	elseif c.sprinting and speed > Config.WalkSpeed + 2 then
 		kind = "RunningAttack"
 	elseif c.combo + 1 >= Config.ComboLength then
-		kind = "Flourish"
+		kind = "Finisher"
 	else
-		kind = (c.combo % 2 == 0) and "PunchRight" or "PunchLeft"
+		kind = Config.M1Chain[c.combo % #Config.M1Chain + 1]
 	end
 
 	c.combo += 1
@@ -572,7 +586,23 @@ function CombatService.blockUp(c, predicted)
 	return true
 end
 
-function CombatService.roll(c, direction, predicted)
+-- Picks the dash clip from the dash direction relative to facing.
+function CombatService.dashAnim(root, direction, airborne)
+	if airborne then
+		return "DashAir"
+	end
+	local relative = root.CFrame:VectorToObjectSpace(direction)
+	if relative.Z < -0.5 then
+		return "DashForward"
+	elseif relative.Z > 0.5 then
+		return "DashBack"
+	elseif relative.X < 0 then
+		return "DashLeft"
+	end
+	return "DashRight"
+end
+
+function CombatService.roll(c, direction, predicted, airborne)
 	local t = now()
 	if t < c.rollReadyAt then
 		return false
@@ -587,17 +617,14 @@ function CombatService.roll(c, direction, predicted)
 	local move = typeof(direction) == "Vector3" and flat(direction) or Vector3.zero
 	local dir = move.Magnitude > 0.1 and move.Unit or look
 
-	local relative = c.root.CFrame:VectorToObjectSpace(dir)
-	local anim
-	if relative.Z < -0.5 then
-		anim = "RollForward"
-	elseif relative.Z > 0.5 then
-		anim = "DodgeBack"
-	elseif relative.X < 0 then
-		anim = "DodgeLeft"
+	-- Players' physics runs on their client, so its grounded check is the
+	-- accurate one; dummies are simulated here.
+	if c.player then
+		airborne = airborne == true
 	else
-		anim = "DodgeRight"
+		airborne = isAirborne(c)
 	end
+	local anim = CombatService.dashAnim(c.root, dir, airborne)
 
 	c.rollReadyAt = t + Config.RollCooldown
 	c.iframesUntil = t + Config.RollIFrames
@@ -612,8 +639,25 @@ function CombatService.roll(c, direction, predicted)
 	end
 	setState(c, "Rolling", Config.RollDuration)
 	playAnim(c, anim, predicted)
-	dash(c, dir * Config.RollSpeed, Config.RollDuration * 0.9)
+	dash(c, dir * (airborne and Config.AirDashSpeed or Config.RollSpeed), Config.RollDuration * 0.9)
+	if airborne then
+		hover(c, Config.RollDuration * 0.9)
+	end
+	effect("Dash", c.root.Position, c, nil, dir)
 	return true, anim
+end
+
+-- Second jump in the air. The jump itself is physics on the owning client;
+-- this only validates it and shows the flip to everyone else.
+function CombatService.doubleJump(c, predicted)
+	local t = now()
+	if c.state ~= "Idle" or t < c.doubleJumpReadyAt then
+		return false
+	end
+	c.doubleJumpReadyAt = t + 0.35
+	playAnim(c, "DoubleJump", predicted)
+	effect("DoubleJump", c.root.Position, c)
+	return true, "DoubleJump"
 end
 
 function CombatService.setSprint(c, on)
@@ -743,8 +787,10 @@ function CombatService.register(model, player)
 	humanoid.MaxHealth = Config.MaxHealth
 	humanoid.Health = Config.MaxHealth
 	humanoid.UseJumpPower = false
-	humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
-	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None -- the mini bar replaces the name tag
+	humanoid.JumpHeight = Config.JumpHeight
+	-- Plain Roblox overhead health while the custom HUD is out.
+	humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.DisplayWhenDamaged
+	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.Viewer
 
 	if not root:FindFirstChild("CombatAttachment") then
 		local attachment = Instance.new("Attachment")
@@ -784,6 +830,7 @@ function CombatService.register(model, player)
 		rollReadyAt = 0,
 		rollStarted = 0,
 		iframesUntil = 0,
+		doubleJumpReadyAt = 0,
 
 		posture = 0,
 		maxPosture = Config.MaxPosture,

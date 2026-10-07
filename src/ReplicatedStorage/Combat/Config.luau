@@ -6,17 +6,25 @@
 
 local Config = {}
 
-Config.WalkSpeed = 16
-Config.SprintSpeed = 26
+-- Movement. Faster than Roblox defaults: battlegrounds pacing.
+Config.WalkSpeed = 17
+Config.SprintSpeed = 28
 Config.SprintDoubleTapWindow = 0.3
+Config.JumpHeight = 7.6
+
+-- Double jump (Space in the air): one per airtime, a flip with a burst of wind.
+Config.DoubleJumpVelocity = 48
+Config.DoubleJumpWindow = 0.12 -- min time after leaving the ground
 
 Config.MaxHealth = 100
 Config.MaxPosture = 100
 
--- M1 chain
+-- M1 chain: four strikes, the fifth press is the finisher.
 Config.ComboResetTime = 1.1
-Config.ComboLength = 5 -- 4 punches, 5th is the flourish
-Config.InputBufferTime = 0.2
+Config.ComboLength = 5
+Config.M1Chain = { "M1_1", "M1_2", "M1_3", "M1_4" }
+Config.AirChain = { "AirPunch", "AirKick" }
+Config.InputBufferTime = 0.22
 
 -- Parry / block
 Config.ParryWindow = 0.42
@@ -41,22 +49,25 @@ Config.GuardBreakDamageMult = 1.6
 Config.FeintCooldown = 1.5
 Config.FeintLockout = 0.06 -- can't feint this close to the hit frame
 
--- Dash (Q). Direction follows your movement keys and can be steered mid-dash.
-Config.RollCooldown = 1.2
+-- Dash (Q). Direction follows your movement keys and can be steered
+-- mid-dash. Side dashes near an opponent curve around them.
+Config.RollCooldown = 1.1
 Config.RollCancelCooldown = 0.7
 Config.RollCancelWindow = 0.15
-Config.RollIFrames = 0.25
-Config.RollDuration = 0.34
-Config.RollSpeed = 49
+Config.RollIFrames = 0.24
+Config.RollDuration = 0.36
+Config.RollSpeed = 76 -- peak speed; eases out to ~12 studs total
+Config.AirDashSpeed = 66
+Config.DashOrbitRange = 16 -- side dashes orbit an opponent this close
 
 Config.AttackWalkSpeed = 13
 Config.StunWalkSpeed = 5
 
 -- Engagement: attacks soft-turn you toward the enemy in front of you so
 -- trades happen face to face.
-Config.AimAssistRange = 13
+Config.AimAssistRange = 14
 Config.AimAssistAngle = 70 -- degrees either side of where you're looking
-Config.AimAssistTurnRate = 14 -- higher = snappier
+Config.AimAssistTurnRate = 16 -- higher = snappier
 
 -- Air combos (Space + M1 launches, air M1s juggle, the last one slams)
 Config.LauncherBuffer = 0.12 -- Space waits this long for an M1 before it jumps
@@ -71,64 +82,98 @@ Config.SlamSpeed = 95
 -- Shift lock (Alt)
 Config.ShiftLockOffset = Vector3.new(1.75, 0.25, 0)
 
+-- Camera. Intensity scales every effect below (0 turns them all off).
+Config.Camera = {
+	Intensity = 1,
+	BaseFOV = 70,
+	SprintFOV = 9, -- added while sprinting
+	DashFOV = 12, -- kick on a dash
+	StrafeTilt = 2.2, -- degrees of roll when strafing at walk speed
+	DashTilt = 7, -- roll kick on a side dash
+	RunBob = 0.05, -- studs of bob while sprinting
+	ImpactFrames = true, -- brief contrast flash on big hits
+}
+
+-- Hit-stop: both fighters freeze for this long when a hit connects.
+Config.HitStop = {
+	Hit = 0.065,
+	HeavyHit = 0.12,
+	Block = 0.045,
+	Parry = 0.13,
+	GuardBreak = 0.15,
+	Slam = 0.1,
+}
+
 --[[
 	Attack definitions. `anim` is the AnimationData key.
 	damage / posture: health and posture dealt. hitstun: stun on a clean hit.
 	range / width: hitbox depth and width in studs, in front of the attacker.
 	knockback: horizontal push on clean hit. launch: vertical push.
+	pushTime: how long the knockback push lasts (default 0.15).
 	lunge: forward movement for the attacker {speed, duration} at windup start.
+	react: the hit reaction the target plays (default HitFront / HitBack).
+	heavy: bigger hit effects, hit-stop and camera kick.
 ]]
 Config.Attacks = {
-	PunchRight = {
-		anim = "PunchRight", damage = 10, posture = 9, hitstun = 0.4,
-		range = 5.8, width = 4.5, knockback = 2.5,
+	M1_1 = {
+		anim = "M1_1", damage = 10, posture = 9, hitstun = 0.45,
+		range = 5.8, width = 4.5, knockback = 3, lunge = { 9, 0.1 },
 		feintable = true, isM1 = true,
 	},
-	PunchLeft = {
-		anim = "PunchLeft", damage = 10, posture = 9, hitstun = 0.4,
-		range = 5.8, width = 4.5, knockback = 2.5,
+	M1_2 = {
+		anim = "M1_2", damage = 10, posture = 9, hitstun = 0.45,
+		range = 5.8, width = 5, knockback = 3, lunge = { 8, 0.1 },
+		react = "HitFrontB", feintable = true, isM1 = true,
+	},
+	M1_3 = {
+		anim = "M1_3", damage = 10, posture = 10, hitstun = 0.48,
+		range = 5.6, width = 4.5, knockback = 3, lunge = { 9, 0.1 },
+		react = "HitFrontC", feintable = true, isM1 = true,
+	},
+	M1_4 = {
+		anim = "M1_4", damage = 10, posture = 11, hitstun = 0.5,
+		range = 6.2, width = 5.5, knockback = 5, lunge = { 6, 0.12 },
 		feintable = true, isM1 = true,
 	},
-	AirPunchRight = {
-		anim = "PunchRight", damage = 10, posture = 9, hitstun = 0.3,
+	Finisher = {
+		anim = "Finisher", damage = 12, posture = 16, hitstun = 1.0,
+		range = 6, width = 5, knockback = 72, launch = 18, pushTime = 0.24, lunge = { 14, 0.16 },
+		react = "Knockback", heavy = true, feintable = true, isM1 = true, endsCombo = true,
+	},
+	AirPunch = {
+		anim = "AirPunch", damage = 10, posture = 9, hitstun = 0.3,
 		range = 6.5, width = 5, height = 9, knockback = 1.5, juggle = true,
 		feintable = true, isM1 = true, air = true,
 	},
-	AirPunchLeft = {
-		anim = "PunchLeft", damage = 10, posture = 9, hitstun = 0.3,
-		range = 6.5, width = 5, height = 9, knockback = 1.5, juggle = true,
+	AirKick = {
+		anim = "AirKick", damage = 10, posture = 9, hitstun = 0.3,
+		range = 6.5, width = 5.5, height = 9, knockback = 1.5, juggle = true,
 		feintable = true, isM1 = true, air = true,
 	},
 	Downslam = {
 		anim = "Downslam", damage = 10, posture = 16, hitstun = 1.15,
 		range = 6.5, width = 5.5, height = 11, knockback = 6, slam = true,
-		lunge = { 10, 0.15 }, feintable = true, isM1 = true, air = true, endsCombo = true,
-	},
-	Flourish = {
-		anim = "Flourish", damage = 10, posture = 14, hitstun = 0.8,
-		range = 5.5, width = 4.5, knockback = 48, launch = 12, lunge = { 8, 0.15 },
-		feintable = true, isM1 = true, endsCombo = true,
+		lunge = { 10, 0.15 }, heavy = true, feintable = true, isM1 = true, air = true, endsCombo = true,
 	},
 	Uppercut = {
 		anim = "Uppercut", damage = 10, posture = 12, hitstun = 0.45,
 		range = 5.8, width = 4.5, knockback = 1, launch = 60, selfLaunch = 58,
-		juggle = true, launcher = true, feintable = true, isM1 = true,
+		heavy = true, juggle = true, launcher = true, feintable = true, isM1 = true,
 	},
 	RunningAttack = {
-		anim = "RunningAttack", damage = 10, posture = 13, hitstun = 0.6,
-		range = 6, width = 4.5, knockback = 18, lunge = { 34, 0.22 },
-		feintable = true, isM1 = true,
+		anim = "RunningAttack", damage = 10, posture = 13, hitstun = 0.7,
+		range = 6.5, width = 4.5, knockback = 30, launch = 6, pushTime = 0.2, lunge = { 40, 0.22 },
+		heavy = true, feintable = true, isM1 = true,
 	},
 	Critical = {
-		anim = "Critical", damage = 15, posture = 34, hitstun = 0.9,
-		range = 6, width = 5, knockback = 30, lunge = { 20, 0.18 }, lungeAtHit = true,
-		feintable = true, cooldown = 6,
+		anim = "Critical", damage = 15, posture = 34, hitstun = 1.0,
+		range = 6, width = 5, knockback = 58, launch = 14, pushTime = 0.24, lunge = { 24, 0.18 }, lungeAtHit = true,
+		react = "Knockback", heavy = true, feintable = true, cooldown = 6,
 	},
 }
 
 -- Custom textures (generated and uploaded to this account).
 Config.Textures = {
-	ui = "rbxassetid://137707197689121", -- health bar + shield atlas
 	impact = "rbxassetid://112690762420519", -- 4x4 flipbook
 	parry = "rbxassetid://134662175081926", -- 4x4 flipbook
 	smoke = "rbxassetid://90351183951922", -- 4x4 flipbook
@@ -156,19 +201,6 @@ Config.Skill = {
 	kneelTime = 2,
 }
 
--- Where each piece lives in the ui atlas (pixels).
-Config.Atlas = {
-	BarFrame = { 0, 0, 1024, 192 },
-	BarTrough = { 0, 192, 1024, 192 },
-	BarFill = { 0, 384, 1024, 192 },
-	BarTrail = { 0, 576, 1024, 192 },
-	BarTip = { 864, 800, 64, 192 },
-	BarSlot = { 96, 832 }, -- fill starts at x=96 and spans 832px
-	ShieldFrame = { 0, 768, 256, 256 },
-	ShieldFill = { 256, 768, 256, 256 },
-	ShieldBroken = { 512, 768, 256, 256 },
-}
-
 Config.Sounds = {
 	Swing = { "rbxassetid://93311226362113", "rbxassetid://111254855668531" },
 	Hit = { "rbxassetid://96359585058783", "rbxassetid://98642142686121" },
@@ -177,6 +209,7 @@ Config.Sounds = {
 	Parry = { "rbxassetid://5763723309" },
 	GuardBreak = { "rbxassetid://9120801590" },
 	Feint = { "rbxassetid://111254855668531" },
+	Dash = { "rbxassetid://93311226362113", "rbxassetid://111254855668531" },
 }
 
 return Config

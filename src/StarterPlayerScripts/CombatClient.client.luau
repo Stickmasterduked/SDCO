@@ -1,9 +1,9 @@
 --[[
 	Client side of the fist combat: input, animation playback for every
-	combatant, and impact feedback.
+	combatant (locomotion included), impact feedback and camera work.
 
-	Own actions are predicted: the animation plays the moment you press the
-	key, and the server's Ack corrects it if the server disagrees.
+	Own actions are predicted: the animation and effects play the moment you
+	press the key, and the server's Ack corrects it if the server disagrees.
 ]]
 
 local CollectionService = game:GetService("CollectionService")
@@ -11,7 +11,6 @@ local ContextActionService = game:GetService("ContextActionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local StarterGui = game:GetService("StarterGui")
 local UserInputService = game:GetService("UserInputService")
 
 local CombatShared = ReplicatedStorage:WaitForChild("Combat")
@@ -20,7 +19,7 @@ local AnimationData = require(CombatShared.AnimationData)
 local PoseAnimator = require(CombatShared.PoseAnimator)
 local Effects = require(CombatShared.Effects)
 local Motion = require(CombatShared.Motion)
-local HUD = require(CombatShared.HUD)
+local CameraFX = require(CombatShared.CameraFX)
 local Remotes = CombatShared:WaitForChild("Remotes")
 
 local player = Players.LocalPlayer
@@ -28,16 +27,7 @@ local camera = workspace.CurrentCamera
 local FLAT = Vector3.new(1, 0, 1)
 
 Effects.preload()
-HUD.createHealthBar(player)
-
-task.spawn(function()
-	for _ = 1, 20 do
-		if pcall(StarterGui.SetCoreGuiEnabled, StarterGui, Enum.CoreGuiType.Health, false) then
-			break
-		end
-		task.wait(0.5)
-	end
-end)
+CameraFX.start()
 
 ------------------------------------------------------------------------
 -- Animation playback (all combatants, run locally on every client)
@@ -66,12 +56,14 @@ local function getTrack(model, name)
 
 	local data = AnimationData[name]
 	if data.markers and data.markers.Swing then
+		local heavy = name == "Critical" or name == "Finisher"
 		track:GetMarkerReachedSignal("Swing"):Connect(function()
 			local root = model:FindFirstChild("HumanoidRootPart")
 			if root then
-				Effects.sound("Swing", root, name == "Critical" and 0.6 or 0.4, name == "Critical" and 0.8 or 1)
+				Effects.sound("Swing", root, heavy and 0.65 or 0.45, heavy and 0.8 or 1)
 			end
-			Effects.swingTrails(model, (data.markers.Hit - data.markers.Swing) + 0.08)
+			local hitAt = data.markers.Hit or data.markers.Swing
+			Effects.swingTrails(model, (hitAt - data.markers.Swing) + 0.1, data.trail)
 		end)
 	end
 
@@ -97,6 +89,18 @@ local function stopGroups(model, groups, except)
 	end
 end
 
+local function isPlayingGroup(model, groups)
+	local tracks = tracksByModel[model]
+	if tracks then
+		for name, track in pairs(tracks) do
+			if track.IsPlaying and groups[AnimationData[name].group] then
+				return true
+			end
+		end
+	end
+	return false
+end
+
 local function playAnim(model, name)
 	local data = AnimationData[name]
 	if not data then
@@ -114,7 +118,7 @@ local function playAnim(model, name)
 
 	local track = getTrack(model, name)
 	if track then
-		local fade = data.group == "react" and 0.04 or 0.07
+		local fade = data.group == "react" and 0.03 or 0.06
 		if data.group == "hold" and track.IsPlaying then
 			return
 		end
@@ -142,7 +146,7 @@ local function stopFamily(model, name)
 end
 
 Remotes.Anim.OnClientEvent:Connect(function(model, name, stop)
-	if typeof(model) ~= "Instance" or not model.Parent then
+	if typeof(model) ~= "Instance" or not model.Parent or type(name) ~= "string" then
 		return
 	end
 	if stop then
@@ -152,7 +156,133 @@ Remotes.Anim.OnClientEvent:Connect(function(model, name, stop)
 	end
 end)
 
--- Stance on every combatant, plus a walk cycle for NPCs (players have Animate).
+------------------------------------------------------------------------
+-- Locomotion: idle / walk / run / jump / fall / land for every combatant,
+-- picked from how the body is actually moving.
+
+local locomotion = {}
+
+local groundParams = RaycastParams.new()
+groundParams.FilterType = Enum.RaycastFilterType.Exclude
+
+local function refreshGroundFilter()
+	local ignore = CollectionService:GetTagged("Combatant")
+	local fx = workspace:FindFirstChild("CombatFX")
+	if fx then
+		table.insert(ignore, fx)
+	end
+	groundParams.FilterDescendantsInstances = ignore
+end
+
+local function isGrounded(humanoid, root, model)
+	if model == player.Character then
+		return humanoid.FloorMaterial ~= Enum.Material.Air
+	end
+	-- Other bodies: FloorMaterial isn't reliable for them here, so probe.
+	return workspace:Raycast(root.Position, Vector3.new(0, -3.6, 0), groundParams) ~= nil
+end
+
+local function updateLocomotion(model, dt)
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	local root = model:FindFirstChild("HumanoidRootPart")
+	if not humanoid or not root or humanoid.Health <= 0 then
+		return
+	end
+
+	local state = locomotion[model]
+	if not state then
+		state = { current = nil, airborneFor = 0, minVy = 0, stride = 0 }
+		locomotion[model] = state
+		model.Destroying:Once(function()
+			locomotion[model] = nil
+		end)
+	end
+
+	local stance = getTrack(model, "Stance")
+	if stance and not stance.IsPlaying then
+		stance:Play(0.2)
+	end
+
+	local velocity = root.AssemblyLinearVelocity
+	local speed = (velocity * FLAT).Magnitude
+	local grounded = isGrounded(humanoid, root, model)
+
+	local want
+	if not grounded then
+		state.airborneFor += dt
+		state.minVy = math.min(state.minVy, velocity.Y)
+		if velocity.Y > 3 and state.current ~= "Fall" then
+			want = "Jump"
+		elseif state.airborneFor > 0.12 or velocity.Y < -8 then
+			want = "Fall"
+		else
+			want = state.current
+		end
+	else
+		-- landing
+		if state.airborneFor > 0.25 then
+			local impact = -state.minVy
+			if impact > 22 then
+				local strength = math.clamp((impact - 22) / 70, 0, 1)
+				if not isPlayingGroup(model, { action = true, react = true }) then
+					playAnim(model, "Land")
+				end
+				Effects.land(root.Position, strength)
+				if model == player.Character then
+					CameraFX.shake(0.08 + strength * 0.25)
+					CameraFX.punch(-Vector3.yAxis, 0.25 + strength * 0.5)
+				end
+			end
+		end
+		state.airborneFor = 0
+		state.minVy = 0
+
+		if speed < 1.2 then
+			want = nil
+		elseif speed < Config.WalkSpeed + 3.5 then
+			want = "Walk"
+		else
+			want = "Run"
+		end
+	end
+
+	if want ~= state.current then
+		if state.current then
+			local old = getTrack(model, state.current)
+			if old then
+				old:Stop(state.current == "Jump" and 0.25 or 0.15)
+			end
+		end
+		if want then
+			local track = getTrack(model, want)
+			if track then
+				track:Play(want == "Fall" and 0.25 or 0.12)
+			end
+		end
+		state.current = want
+	end
+
+	if want == "Walk" or want == "Run" then
+		local track = getTrack(model, want)
+		local data = AnimationData[want]
+		if track and data.speedRef then
+			track:AdjustSpeed(math.clamp(speed / data.speedRef, 0.55, 1.6))
+		end
+	end
+
+	-- dust kicked up by sprinting feet
+	if grounded and want == "Run" then
+		state.stride += speed * dt
+		if state.stride > 7.5 then
+			state.stride = 0
+			Effects.step(root.Position)
+		end
+	end
+end
+
+------------------------------------------------------------------------
+-- Combatant setup
+
 local function setupCombatant(model)
 	task.spawn(function()
 		local humanoid = model:WaitForChild("Humanoid", 10)
@@ -164,10 +294,6 @@ local function setupCombatant(model)
 			track:Play(0.2)
 		end
 		Effects.attachTrails(model)
-		HUD.attachShield(model)
-		if model ~= player.Character then
-			HUD.attachMiniBar(model)
-		end
 	end)
 end
 
@@ -176,36 +302,29 @@ for _, model in ipairs(CollectionService:GetTagged("Combatant")) do
 	setupCombatant(model)
 end
 
--- Keeps state-driven tracks in sync: stance always on, block hold while
+-- Keeps state-driven tracks in sync: locomotion, and the block hold while
 -- another combatant is blocking (late joiners and missed events recover).
-RunService.Heartbeat:Connect(function()
+local filterTimer = 0
+RunService.Heartbeat:Connect(function(dt)
+	filterTimer -= dt
+	if filterTimer <= 0 then
+		filterTimer = 1
+		refreshGroundFilter()
+	end
+
 	for _, model in ipairs(CollectionService:GetTagged("Combatant")) do
-		local stance = model.Parent and getTrack(model, "Stance")
-		if stance and not stance.IsPlaying then
-			stance:Play(0.2)
-		end
+		if model.Parent then
+			updateLocomotion(model, dt)
 
-		if model ~= player.Character then
-			local blocking = model:GetAttribute("CombatState") == "Blocking"
-			local block = getTrack(model, "Block")
-			if block and blocking ~= block.IsPlaying then
-				if blocking then
-					block:Play(0.07)
-				else
-					block:Stop(0.1)
-				end
-			end
-		end
-
-		if not Players:GetPlayerFromCharacter(model) then
-			local root = model:FindFirstChild("HumanoidRootPart")
-			local walk = root and getTrack(model, "Walk")
-			if walk then
-				local moving = (root.AssemblyLinearVelocity * FLAT).Magnitude > 2
-				if moving and not walk.IsPlaying then
-					walk:Play(0.15)
-				elseif not moving and walk.IsPlaying then
-					walk:Stop(0.2)
+			if model ~= player.Character then
+				local blocking = model:GetAttribute("CombatState") == "Blocking"
+				local block = getTrack(model, "Block")
+				if block and blocking ~= block.IsPlaying then
+					if blocking then
+						block:Play(0.07)
+					else
+						block:Stop(0.1)
+					end
 				end
 			end
 		end
@@ -214,8 +333,6 @@ end)
 
 ------------------------------------------------------------------------
 -- Feedback
-
-local shake = 0
 
 -- Physical reactions layered over the clips (degrees/second impulses).
 local function hitDirection(attacker, defender)
@@ -233,57 +350,181 @@ local function hitDirection(attacker, defender)
 	return -from.Z, from.X
 end
 
+local function worldDirection(attacker, defender)
+	local a = attacker and attacker:FindFirstChild("HumanoidRootPart")
+	local d = defender and defender:FindFirstChild("HumanoidRootPart")
+	if a and d then
+		local dir = (d.Position - a.Position) * FLAT
+		if dir.Magnitude > 0.05 then
+			return dir.Unit
+		end
+	end
+	return Vector3.zero
+end
+
+local function isModel(value)
+	return typeof(value) == "Instance" and value.Parent ~= nil
+end
+
 local function react(kind, attacker, defender)
 	local back, side = hitDirection(attacker, defender)
 	local function kick(model, joint, p, y, r)
-		if typeof(model) == "Instance" and model.Parent then
+		if isModel(model) then
 			PoseAnimator.kick(model, joint, Vector3.new(p, y, r))
 		end
 	end
 	if kind == "Hit" or kind == "HeavyHit" then
-		local m = kind == "HeavyHit" and 1.7 or 1
-		kick(defender, "Torso", 260 * back * m, math.random(-120, 120), -160 * side * m)
-		kick(defender, "Head", 340 * back * m, math.random(-200, 200), 0)
-		kick(attacker, "Torso", -60, 0, 0)
+		local m = kind == "HeavyHit" and 1.8 or 1.15
+		kick(defender, "Torso", 300 * back * m, math.random(-160, 160), -200 * side * m)
+		kick(defender, "Head", 420 * back * m, math.random(-260, 260), -120 * side * m)
+		kick(defender, "RightArm", 260 * m, 0, 160 * m)
+		kick(defender, "LeftArm", 260 * m, 0, -160 * m)
+		kick(attacker, "Torso", -90, 0, 0)
+		kick(attacker, "Head", -120, 0, 0)
 	elseif kind == "Block" then
-		kick(defender, "RightArm", -260, 0, 60)
-		kick(defender, "LeftArm", -260, 0, -60)
-		kick(defender, "Torso", 140, 0, 0)
+		kick(defender, "RightArm", -320, 0, 80)
+		kick(defender, "LeftArm", -320, 0, -80)
+		kick(defender, "Torso", 180, 0, 0)
+		kick(attacker, "Torso", 120, 0, 0)
 	elseif kind == "Parry" then
-		kick(attacker, "Torso", 260, 0, 0)
-		kick(attacker, "RightArm", 420, 0, 0)
-		kick(attacker, "LeftArm", 420, 0, 0)
-		kick(defender, "RightArm", 240, 0, 0)
+		kick(attacker, "Torso", 320, 0, 0)
+		kick(attacker, "RightArm", 520, 0, 0)
+		kick(attacker, "LeftArm", 520, 0, 0)
+		kick(defender, "LeftArm", 300, 0, -120)
 	elseif kind == "GuardBreak" then
-		kick(defender, "Torso", 420, 0, 0)
-		kick(defender, "Head", 500, 0, 0)
+		kick(defender, "Torso", 480, 0, 0)
+		kick(defender, "Head", 600, 0, 0)
+	elseif kind == "Slam" then
+		kick(defender, "Torso", -420, 0, 0)
+		kick(defender, "Head", -520, 0, 0)
 	end
 end
 
-Remotes.Effect.OnClientEvent:Connect(function(kind, position, attacker, defender)
-	if typeof(position) ~= "Vector3" then
+-- Both bodies freeze for a few frames when a hit connects.
+local function hitStop(kind, attacker, defender)
+	local duration = Config.HitStop[kind]
+	if not duration then
 		return
 	end
-	react(kind, attacker, defender)
-	local amount = Effects.play(kind, position, attacker)
+	if isModel(defender) then
+		PoseAnimator.hitStop(defender, duration, kind == "Block" and 0.1 or 0.28)
+	end
+	if isModel(attacker) then
+		PoseAnimator.hitStop(attacker, duration, kind == "Parry" and 0.22 or 0)
+	end
+	if kind == "Parry" and isModel(defender) then
+		playAnim(defender, "Deflect")
+	end
+end
+
+local IMPACT_TINT = {
+	Parry = Color3.fromRGB(255, 230, 170),
+	GuardBreak = Color3.fromRGB(255, 190, 150),
+}
+
+-- Camera reaction, strongest for whoever is on the receiving end.
+local function cameraReact(kind, amount, position, attacker, defender, info)
 	local character = player.Character
-	if character and amount > 0 then
-		if defender == character then
-			shake = math.max(shake, amount)
-		elseif attacker == character then
-			shake = math.max(shake, amount * 0.6)
+	if not character then
+		return
+	end
+	local direction = worldDirection(attacker, defender)
+	local big = info == "Finisher" or info == "Critical"
+
+	if defender == character then
+		CameraFX.shake(amount)
+		CameraFX.punch(direction, kind == "HeavyHit" and 0.9 or 0.5)
+		if kind == "HeavyHit" or kind == "GuardBreak" then
+			CameraFX.fovKick(big and 7 or 4)
+			CameraFX.rollKick(math.random() < 0.5 and -5 or 5)
+			CameraFX.impactFrame(big and 0.7 or 0.4, IMPACT_TINT[kind])
+		elseif kind == "Parry" then
+			CameraFX.fovKick(-3)
+			CameraFX.impactFrame(0.35, IMPACT_TINT.Parry)
+		end
+	elseif attacker == character then
+		CameraFX.shake(amount * 0.55)
+		CameraFX.punch(direction, kind == "HeavyHit" and 0.45 or 0.22)
+		if kind == "HeavyHit" or kind == "GuardBreak" then
+			CameraFX.fovKick(big and -6 or -3)
+			CameraFX.impactFrame(big and 0.8 or 0.35, IMPACT_TINT[kind])
+			if big then
+				CameraFX.blur(8)
+			end
+		elseif kind == "Parry" then
+			CameraFX.shake(0.15)
+			CameraFX.fovKick(4)
+		elseif kind == "Hit" then
+			CameraFX.fovKick(-1.2)
+		end
+	else
+		-- spectating: only big impacts nearby reach the camera
+		local root = character:FindFirstChild("HumanoidRootPart")
+		if root and amount >= 0.4 then
+			local falloff = math.clamp(1 - (root.Position - position).Magnitude / 45, 0, 1)
+			CameraFX.shake(amount * 0.35 * falloff)
 		end
 	end
-end)
+end
 
-Remotes.Impulse.OnClientEvent:Connect(function(kind, velocity, duration, delay)
-	local character = player.Character
-	local root = character and character:FindFirstChild("HumanoidRootPart")
-	if not root or type(kind) ~= "string" or typeof(velocity) ~= "Vector3" then
+Remotes.Effect.OnClientEvent:Connect(function(kind, position, attacker, defender, info)
+	if type(kind) ~= "string" or typeof(position) ~= "Vector3" then
 		return
 	end
-	Motion.apply(root, kind, velocity, duration, delay)
+	local character = player.Character
+
+	-- movement effects: our own were already played when we pressed the key
+	if kind == "Dash" then
+		if isModel(attacker) and attacker ~= character then
+			Effects.dash(attacker, typeof(info) == "Vector3" and info or Vector3.zero, false)
+		end
+		return
+	elseif kind == "DoubleJump" then
+		if isModel(attacker) and attacker ~= character then
+			Effects.doubleJump(attacker)
+		end
+		return
+	end
+
+	react(kind, attacker, defender)
+	hitStop(kind, attacker, defender)
+	local amount = Effects.play(kind, position, attacker, defender, info)
+	cameraReact(kind, amount, position, attacker, defender, info)
 end)
+
+------------------------------------------------------------------------
+-- Aim assist: attacks, guards and side dashes turn toward the enemy you're
+-- facing, so exchanges happen face to face.
+
+local function findFocus(root, range)
+	local look = camera.CFrame.LookVector * FLAT
+	if look.Magnitude < 0.01 then
+		return nil
+	end
+	look = look.Unit
+	local cosLimit = math.cos(math.rad(Config.AimAssistAngle))
+	local best, bestScore
+	for _, model in ipairs(CollectionService:GetTagged("Combatant")) do
+		if model ~= player.Character then
+			local other = model:FindFirstChild("HumanoidRootPart")
+			local humanoid = model:FindFirstChildOfClass("Humanoid")
+			if other and humanoid and humanoid.Health > 0 then
+				local offset = (other.Position - root.Position) * FLAT
+				local distance = offset.Magnitude
+				if distance > 0.1 and distance <= (range or Config.AimAssistRange) then
+					local dot = look:Dot(offset.Unit)
+					if dot >= cosLimit then
+						local score = distance * (2 - dot)
+						if not bestScore or score < bestScore then
+							best, bestScore = other, score
+						end
+					end
+				end
+			end
+		end
+	end
+	return best
+end
 
 ------------------------------------------------------------------------
 -- Local prediction
@@ -307,6 +548,9 @@ local predicted = {
 	blocking = false,
 	lastBlockTry = 0,
 	skillReadyAt = 0,
+	doubleJumped = false,
+	dashOrbit = nil,
+	dashOrbitUntil = 0,
 }
 
 local blockPressedAt = 0
@@ -437,7 +681,7 @@ local function doM1()
 	local kind
 	if airborne then
 		if juggling and predicted.combo + 1 < Config.ComboLength then
-			kind = (predicted.combo % 2 == 0) and "AirPunchRight" or "AirPunchLeft"
+			kind = Config.AirChain[predicted.combo % #Config.AirChain + 1]
 		else
 			kind = "Downslam"
 		end
@@ -446,9 +690,9 @@ local function doM1()
 	elseif sprinting and speed > Config.WalkSpeed + 2 then
 		kind = "RunningAttack"
 	elseif predicted.combo + 1 >= Config.ComboLength then
-		kind = "Flourish"
+		kind = "Finisher"
 	else
-		kind = (predicted.combo % 2 == 0) and "PunchRight" or "PunchLeft"
+		kind = Config.M1Chain[predicted.combo % #Config.M1Chain + 1]
 	end
 
 	predicted.combo += 1
@@ -474,6 +718,7 @@ local function doCritical()
 		sprinting = false
 		local anim = predictAttack("Critical")
 		playAnim(character, anim)
+		CameraFX.fovKick(-2)
 		send("Critical", nil, anim)
 	else
 		send("Critical")
@@ -551,6 +796,22 @@ local function releaseBlock()
 	send("BlockUp")
 end
 
+-- Same choice the server makes in CombatService.dashAnim.
+local function dashAnim(root, direction, airborne)
+	if airborne then
+		return "DashAir"
+	end
+	local relative = root.CFrame:VectorToObjectSpace(direction)
+	if relative.Z < -0.5 then
+		return "DashForward"
+	elseif relative.Z > 0.5 then
+		return "DashBack"
+	elseif relative.X < 0 then
+		return "DashLeft"
+	end
+	return "DashRight"
+end
+
 local function doRoll()
 	local character, humanoid, root = getCharacter()
 	if not character then
@@ -569,16 +830,14 @@ local function doRoll()
 
 	local move = humanoid.MoveDirection * FLAT
 	local direction = move.Magnitude > 0.1 and move.Unit or (root.CFrame.LookVector * FLAT).Unit
-	local relative = root.CFrame:VectorToObjectSpace(direction)
-	local anim
-	if relative.Z < -0.5 then
-		anim = "RollForward"
-	elseif relative.Z > 0.5 then
-		anim = "DodgeBack"
-	elseif relative.X < 0 then
-		anim = "DodgeLeft"
-	else
-		anim = "DodgeRight"
+	local airborne = humanoid.FloorMaterial == Enum.Material.Air
+	local anim = dashAnim(root, direction, airborne)
+
+	-- Side dashes near an opponent curve around them (Motion.dash orbit).
+	predicted.dashOrbit = nil
+	if anim == "DashLeft" or anim == "DashRight" then
+		predicted.dashOrbit = findFocus(root, Config.DashOrbitRange)
+		predicted.dashOrbitUntil = t + Config.RollDuration + 0.4
 	end
 
 	predicted.rollReadyAt = t + Config.RollCooldown
@@ -589,7 +848,37 @@ local function doRoll()
 	end
 	sprinting = false
 	playAnim(character, anim)
-	send("Roll", direction, anim)
+	Effects.dash(character, direction, airborne)
+
+	local sideways = root.CFrame:VectorToObjectSpace(direction).X
+	CameraFX.fovKick(Config.Camera.DashFOV)
+	CameraFX.rollKick(-sideways * Config.Camera.DashTilt)
+	CameraFX.blur(5)
+	send("Roll", { direction = direction, airborne = airborne }, anim)
+end
+
+local function tryDoubleJump()
+	local character, _, root = getCharacter()
+	if not character or predicted.doubleJumped then
+		return false
+	end
+	local t = os.clock()
+	if serverState() ~= "Idle" or t < predicted.busyUntil then
+		return false
+	end
+	local state = locomotion[character]
+	if not state or state.airborneFor < Config.DoubleJumpWindow then
+		return false
+	end
+	predicted.doubleJumped = true
+	local v = root.AssemblyLinearVelocity
+	root.AssemblyLinearVelocity = Vector3.new(v.X, Config.DoubleJumpVelocity, v.Z)
+	playAnim(character, "DoubleJump")
+	Effects.doubleJump(character)
+	CameraFX.fovKick(4)
+	CameraFX.punch(Vector3.yAxis, 0.3)
+	send("DoubleJump", nil, "DoubleJump")
+	return true
 end
 
 local function doSkill()
@@ -617,6 +906,19 @@ local function setSprint(on)
 	send("Sprint", on)
 end
 
+Remotes.Impulse.OnClientEvent:Connect(function(kind, velocity, duration, delay)
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root or type(kind) ~= "string" or typeof(velocity) ~= "Vector3" then
+		return
+	end
+	local orbit = nil
+	if kind == "dash" and predicted.dashOrbit and os.clock() < predicted.dashOrbitUntil then
+		orbit = predicted.dashOrbit
+	end
+	Motion.apply(root, kind, velocity, duration, delay, orbit)
+end)
+
 ------------------------------------------------------------------------
 -- Input
 
@@ -629,11 +931,18 @@ local function toggleShiftLock()
 	end
 end
 
--- Space: jump after a short buffer unless an M1 turns it into a launcher.
+-- Space: jump after a short buffer unless an M1 turns it into a launcher;
+-- in the air it's the double jump.
 ContextActionService:BindActionAtPriority("CombatJump", function(_, inputState)
 	if inputState ~= Enum.UserInputState.Begin then
 		return Enum.ContextActionResult.Sink
 	end
+	local _, humanoid = getCharacter()
+	if humanoid and humanoid.FloorMaterial == Enum.Material.Air then
+		tryDoubleJump()
+		return Enum.ContextActionResult.Sink
+	end
+
 	local pressedAt = os.clock()
 	spaceDownAt = pressedAt
 	jumpConsumed = false
@@ -641,12 +950,12 @@ ContextActionService:BindActionAtPriority("CombatJump", function(_, inputState)
 		if spaceDownAt ~= pressedAt or jumpConsumed then
 			return
 		end
-		local _, humanoid = getCharacter()
+		local _, h = getCharacter()
 		-- ChangeState rather than .Jump: the default control script rewrites
 		-- .Jump every frame, and Space is sunk so it never sees the press.
-		if humanoid and serverState() == "Idle" and humanoid.JumpHeight > 0
-			and humanoid.FloorMaterial ~= Enum.Material.Air then
-			humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+		if h and serverState() == "Idle" and h.JumpHeight > 0
+			and h.FloorMaterial ~= Enum.Material.Air then
+			h:ChangeState(Enum.HumanoidStateType.Jumping)
 		end
 	end)
 	return Enum.ContextActionResult.Sink
@@ -739,20 +1048,42 @@ local function onCharacterAdded(character)
 	predicted.combo = 0
 	predicted.busyUntil = 0
 	predicted.attacking = false
+	predicted.doubleJumped = false
 	sprinting = false
 	blockHeld = false
+
 	character:GetAttributeChangedSignal("CombatState"):Connect(function()
 		onStateChanged(character)
 	end)
+
+	-- PoseAnimator drives the whole body; Roblox's default animations would
+	-- only fight it. The server removes Animate already; this covers setups
+	-- that spawn characters some other way.
+	local function removeAnimate(child)
+		if child.Name == "Animate" and (child:IsA("LocalScript") or child:IsA("Script")) then
+			child:Destroy()
+		end
+	end
+	for _, child in ipairs(character:GetChildren()) do
+		removeAnimate(child)
+	end
+	character.ChildAdded:Connect(removeAnimate)
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
+	if animator then
+		for _, playing in ipairs(animator:GetPlayingAnimationTracks()) do
+			playing:Stop(0)
+		end
+	end
 end
 
 player.CharacterAdded:Connect(onCharacterAdded)
 if player.Character then
-	onCharacterAdded(player.Character)
+	task.spawn(onCharacterAdded, player.Character)
 end
 
 RunService.Heartbeat:Connect(function()
-	local character, humanoid, root = getCharacter()
+	local character, humanoid = getCharacter()
 	if not character then
 		return
 	end
@@ -769,6 +1100,11 @@ RunService.Heartbeat:Connect(function()
 		and not predicted.attacking and t - predicted.lastBlockTry > 0.03 then
 		doBlock(true)
 	end
+
+	-- Touching the ground gives the double jump back.
+	if humanoid.FloorMaterial ~= Enum.Material.Air then
+		predicted.doubleJumped = false
+	end
 end)
 
 -- Anyone held by the slash skill gets cut from every angle until released.
@@ -784,7 +1120,7 @@ RunService.Heartbeat:Connect(function()
 				PoseAnimator.kick(model, joints[math.random(1, #joints)],
 					Vector3.new(math.random(-380, 380), math.random(-260, 260), math.random(-300, 300)))
 				if model == player.Character then
-					shake = math.max(shake, 0.12)
+					CameraFX.shake(0.12)
 				end
 			end
 		else
@@ -794,41 +1130,7 @@ RunService.Heartbeat:Connect(function()
 end)
 
 ------------------------------------------------------------------------
--- Aim assist: attacks and guards soft-turn toward the enemy you're facing,
--- so exchanges happen face to face.
-
-local function findFocus(root)
-	local look = camera.CFrame.LookVector * FLAT
-	if look.Magnitude < 0.01 then
-		return nil
-	end
-	look = look.Unit
-	local cosLimit = math.cos(math.rad(Config.AimAssistAngle))
-	local best, bestScore
-	for _, model in ipairs(CollectionService:GetTagged("Combatant")) do
-		if model ~= player.Character then
-			local other = model:FindFirstChild("HumanoidRootPart")
-			local humanoid = model:FindFirstChildOfClass("Humanoid")
-			if other and humanoid and humanoid.Health > 0 then
-				local offset = (other.Position - root.Position) * FLAT
-				local distance = offset.Magnitude
-				if distance > 0.1 and distance <= Config.AimAssistRange then
-					local dot = look:Dot(offset.Unit)
-					if dot >= cosLimit then
-						local score = distance * (2 - dot)
-						if not bestScore or score < bestScore then
-							best, bestScore = other, score
-						end
-					end
-				end
-			end
-		end
-	end
-	return best
-end
-
-------------------------------------------------------------------------
--- Rotation, shift lock (Alt) and camera shake
+-- Rotation and shift lock (Alt). Shake, FOV and tilt live in CameraFX.
 
 -- You keep turning freely while attacking, blocking and dashing. Only hard
 -- stuns take rotation away.
@@ -849,16 +1151,20 @@ RunService:BindToRenderStep("CombatCamera", Enum.RenderPriority.Camera.Value + 1
 	end
 
 	local offset = Vector3.zero
-	if shake > 0.001 then
-		local t = os.clock() * 38
-		offset = Vector3.new(math.noise(t, 0.3), math.noise(0.7, t), math.noise(t, t)) * shake
-		shake = math.max(0, shake - dt * 2.6)
-	end
-
 	local state = serverState()
 	local rotationLocked = ROTATION_LOCKED[state] == true
-	local engaged = predicted.attacking or state == "Attacking" or state == "Blocking"
-	local focus = engaged and not rotationLocked and not shiftLocked and findFocus(root)
+	local t = os.clock()
+
+	local focus
+	if not rotationLocked and state == "Rolling" and predicted.dashOrbit
+		and predicted.dashOrbit.Parent and t < predicted.dashOrbitUntil then
+		-- face the opponent while circling them
+		focus = predicted.dashOrbit
+	else
+		local engaged = predicted.attacking or state == "Attacking" or state == "Blocking"
+		focus = engaged and not rotationLocked and not shiftLocked and findFocus(root)
+	end
+
 	if focus then
 		humanoid.AutoRotate = false
 		local position = root.Position

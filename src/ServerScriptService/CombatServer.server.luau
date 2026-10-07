@@ -28,6 +28,12 @@ local function spawnCharacter(player)
 
 	local character = Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R6)
 	character.Name = player.Name
+	-- PoseAnimator animates everything (idle, walk, run, jump, fall), so
+	-- Roblox's default animations would only fight it.
+	local animate = character:FindFirstChild("Animate")
+	if animate then
+		animate:Destroy()
+	end
 	character:PivotTo(getSpawnCFrame())
 	character.Parent = workspace
 	player.Character = character
@@ -97,7 +103,12 @@ local handlers = {
 		return CombatService.blockUp(c, true)
 	end,
 	Roll = function(c, arg)
-		return CombatService.roll(c, typeof(arg) == "Vector3" and arg or nil, true)
+		local options = type(arg) == "table" and arg or {}
+		local direction = typeof(options.direction) == "Vector3" and options.direction or nil
+		return CombatService.roll(c, direction, true, options.airborne == true)
+	end,
+	DoubleJump = function(c)
+		return CombatService.doubleJump(c, true)
 	end,
 	Sprint = function(c, arg)
 		return CombatService.setSprint(c, arg == true)

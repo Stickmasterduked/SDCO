@@ -1,8 +1,14 @@
--- Client-side combat VFX and sound. Textures are custom-made and uploaded
--- (see Config.Textures): flipbook impacts are 4x4 sheets of 256px frames
--- played on camera-facing billboards; sparks, smoke and shockwaves are
--- ParticleEmitters burst once.
+--[[
+	Client-side combat VFX and sound, battlegrounds style: every hit stacks a
+	neon impact flash, a shock ring, streak lines and sparks; dashes leave
+	afterimages and wind rings; slams crack the ground into a crater of rocks.
 
+	Most shapes are procedural (neon parts animated every frame), so they need
+	no uploads. The custom textures in Config.Textures add sparks, smoke and
+	flipbook impacts on top. The slash skill's visuals are unchanged.
+]]
+
+local CollectionService = game:GetService("CollectionService")
 local ContentProvider = game:GetService("ContentProvider")
 local Debris = game:GetService("Debris")
 local RunService = game:GetService("RunService")
@@ -10,6 +16,7 @@ local RunService = game:GetService("RunService")
 local Config = require(script.Parent.Config)
 
 local TEX = Config.Textures
+local FLAT = Vector3.new(1, 0, 1)
 
 local Effects = {}
 
@@ -60,6 +67,298 @@ function Effects.sound(kind, parent, volume, pitch)
 	sound.Parent = parent
 	sound:Play()
 	Debris:AddItem(sound, 4)
+end
+
+------------------------------------------------------------------------
+-- Procedural building blocks
+
+local fxFolder
+
+local function folder()
+	if not fxFolder or not fxFolder.Parent then
+		fxFolder = Instance.new("Folder")
+		fxFolder.Name = "CombatFX"
+		fxFolder.Parent = workspace
+	end
+	return fxFolder
+end
+
+local function fxPart(color, material, shape)
+	local part = Instance.new("Part")
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.CastShadow = false
+	part.Locked = true
+	part.TopSurface = Enum.SurfaceType.Smooth
+	part.BottomSurface = Enum.SurfaceType.Smooth
+	part.Material = material or Enum.Material.Neon
+	part.Color = color or Color3.new(1, 1, 1)
+	if shape then
+		part.Shape = shape
+	end
+	part.Parent = folder()
+	return part
+end
+
+-- Runs `step(alpha, dt)` every frame for `duration`, then `done()`.
+local function animate(duration, step, done)
+	local start = os.clock()
+	local connection
+	connection = RunService.Heartbeat:Connect(function(dt)
+		local alpha = math.min(1, (os.clock() - start) / duration)
+		local ok = pcall(step, alpha, dt)
+		if alpha >= 1 or not ok then
+			connection:Disconnect()
+			if done then
+				done()
+			end
+		end
+	end)
+end
+
+local function easeOut(alpha, power)
+	return 1 - (1 - alpha) ^ (power or 3)
+end
+
+-- A CFrame at `position` whose LookVector is `normal`.
+local function facing(position, normal)
+	normal = normal.Magnitude > 0.001 and normal.Unit or Vector3.yAxis
+	local up = math.abs(normal.Y) > 0.95 and Vector3.xAxis or Vector3.yAxis
+	local right = normal:Cross(up).Unit
+	return CFrame.fromMatrix(position, right, right:Cross(normal), -normal)
+end
+
+-- A random direction within `spread` degrees of `direction`.
+local function cone(direction, spread)
+	local basis = facing(Vector3.zero, direction)
+	local theta = math.rad(random:NextNumber(0, spread))
+	local phi = random:NextNumber(0, math.pi * 2)
+	return basis:VectorToWorldSpace(Vector3.new(
+		math.sin(theta) * math.cos(phi),
+		math.sin(theta) * math.sin(phi),
+		-math.cos(theta)
+	))
+end
+
+-- Expanding neon ball that fades out: the core of every impact.
+local function burst(position, color, size0, size1, duration, transparency)
+	local ball = fxPart(color, Enum.Material.Neon, Enum.PartType.Ball)
+	ball.Size = Vector3.one * size0
+	ball.CFrame = CFrame.new(position)
+	local t0 = transparency or 0
+	animate(duration, function(alpha)
+		local size = size0 + (size1 - size0) * easeOut(alpha, 4)
+		ball.Size = Vector3.one * size
+		ball.Transparency = t0 + (1 - t0) * alpha ^ 1.4
+	end, function()
+		ball:Destroy()
+	end)
+end
+
+-- Segmented shock ring lying in the plane of `cf` (axis = cf.LookVector).
+local function ring(cf, color, r0, r1, thickness, duration, transparency, segments)
+	segments = segments or 20
+	local t0 = transparency or 0.1
+	local parts = {}
+	for i = 1, segments do
+		parts[i] = fxPart(color)
+	end
+	animate(duration, function(alpha)
+		local eased = easeOut(alpha, 3)
+		local radius = r0 + (r1 - r0) * eased
+		local width = thickness * (1 - alpha * 0.75)
+		local length = (2 * math.pi * radius / segments) * 1.08
+		local fade = t0 + (1 - t0) * alpha ^ 1.6
+		for i, part in ipairs(parts) do
+			local angle = (i / segments) * math.pi * 2
+			part.Size = Vector3.new(width, length, width * 0.6)
+			part.CFrame = cf * CFrame.Angles(0, 0, angle) * CFrame.new(radius, 0, 0)
+			part.Transparency = fade
+		end
+	end, function()
+		for _, part in ipairs(parts) do
+			part:Destroy()
+		end
+	end)
+end
+
+-- Thin neon lines shooting out of an impact.
+local function streaks(position, direction, count, color, length, distance, spread, duration, width)
+	local lines = {}
+	for i = 1, count do
+		local dir = direction and cone(direction, spread) or cone(Vector3.yAxis, 180)
+		lines[i] = { part = fxPart(color), dir = dir, length = length * random:NextNumber(0.6, 1.2), distance = distance * random:NextNumber(0.7, 1.15) }
+	end
+	width = width or 0.12
+	animate(duration, function(alpha)
+		local eased = easeOut(alpha, 2.5)
+		for _, line in ipairs(lines) do
+			local len = math.max(0.05, line.length * math.min(1, alpha * 6) * (1 - alpha) ^ 0.6)
+			local centre = position + line.dir * (0.4 + line.distance * eased + len / 2)
+			line.part.Size = Vector3.new(width * (1 - alpha * 0.6), width * (1 - alpha * 0.6), len)
+			line.part.CFrame = CFrame.lookAt(centre, centre + line.dir)
+			line.part.Transparency = alpha ^ 2
+		end
+	end, function()
+		for _, line in ipairs(lines) do
+			line.part:Destroy()
+		end
+	end)
+end
+
+-- Neon wedges blown outward with gravity (guard break).
+local function shards(position, direction, count, color)
+	local pieces = {}
+	for i = 1, count do
+		local part = Instance.new("WedgePart")
+		part.Anchored = true
+		part.CanCollide = false
+		part.CanQuery = false
+		part.CanTouch = false
+		part.CastShadow = false
+		part.Material = Enum.Material.Neon
+		part.Color = color
+		part.Size = Vector3.new(0.08, random:NextNumber(0.3, 0.8), random:NextNumber(0.3, 0.9))
+		part.CFrame = CFrame.new(position) * CFrame.Angles(random:NextNumber(0, 6.3), random:NextNumber(0, 6.3), 0)
+		part.Parent = folder()
+		local dir = direction and cone(direction, 70) or cone(Vector3.yAxis, 180)
+		pieces[i] = {
+			part = part,
+			velocity = dir * random:NextNumber(18, 34) + Vector3.new(0, random:NextNumber(4, 12), 0),
+			spin = CFrame.Angles(random:NextNumber(-0.4, 0.4), random:NextNumber(-0.4, 0.4), random:NextNumber(-0.4, 0.4)),
+		}
+	end
+	animate(0.7, function(alpha, dt)
+		for _, piece in ipairs(pieces) do
+			piece.velocity += Vector3.new(0, -70, 0) * dt
+			piece.velocity *= 1 - math.min(1, dt * 2)
+			piece.part.CFrame = (piece.part.CFrame + piece.velocity * dt) * piece.spin
+			piece.part.Transparency = alpha ^ 2
+		end
+	end, function()
+		for _, piece in ipairs(pieces) do
+			piece.part:Destroy()
+		end
+	end)
+end
+
+------------------------------------------------------------------------
+-- Ground
+
+local function groundParams()
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local ignore = { folder() }
+	for _, model in ipairs(CollectionService:GetTagged("Combatant")) do
+		table.insert(ignore, model)
+	end
+	params.FilterDescendantsInstances = ignore
+	return params
+end
+
+-- Ground position, material and colour under `position`, or nil.
+local function groundAt(position, depth)
+	local result = workspace:Raycast(position + Vector3.new(0, 2, 0), Vector3.new(0, -(depth or 10), 0), groundParams())
+	if not result then
+		return nil
+	end
+	local color
+	if result.Instance:IsA("Terrain") then
+		local ok, terrainColor = pcall(function()
+			return workspace.Terrain:GetMaterialColor(result.Material)
+		end)
+		color = ok and terrainColor or Color3.fromRGB(110, 105, 100)
+	elseif result.Instance:IsA("BasePart") then
+		color = result.Instance.Color
+	else
+		color = Color3.fromRGB(110, 105, 100)
+	end
+	return result.Position, result.Material, color
+end
+
+local function rockPart(material, color, size)
+	local part = fxPart(color, Enum.Material.Slate)
+	pcall(function()
+		part.Material = material
+	end)
+	part.Size = size
+	return part
+end
+
+-- Chunks of ground thrown up in arcs.
+local function debris(position, count, material, color, power)
+	local pieces = {}
+	for i = 1, count do
+		local s = random:NextNumber(0.35, 0.9)
+		local part = rockPart(material, color, Vector3.new(s, s * random:NextNumber(0.6, 1), s))
+		part.CFrame = CFrame.new(position) * CFrame.Angles(random:NextNumber(0, 6.3), random:NextNumber(0, 6.3), 0)
+		local angle = random:NextNumber(0, math.pi * 2)
+		pieces[i] = {
+			part = part,
+			velocity = Vector3.new(math.cos(angle), 0, math.sin(angle)) * random:NextNumber(8, 18) * power
+				+ Vector3.new(0, random:NextNumber(18, 34) * power, 0),
+			spin = CFrame.Angles(random:NextNumber(-0.3, 0.3), random:NextNumber(-0.3, 0.3), random:NextNumber(-0.3, 0.3)),
+			floor = position.Y,
+		}
+	end
+	animate(1.4, function(alpha, dt)
+		for _, piece in ipairs(pieces) do
+			if piece.velocity then
+				piece.velocity += Vector3.new(0, -110, 0) * dt
+				local cf = (piece.part.CFrame + piece.velocity * dt) * piece.spin
+				if cf.Position.Y < piece.floor + 0.2 and piece.velocity.Y < 0 then
+					piece.velocity = nil -- landed
+					cf = CFrame.new(cf.Position.X, piece.floor + 0.2, cf.Position.Z) * cf.Rotation
+				end
+				piece.part.CFrame = cf
+			end
+			piece.part.Transparency = math.clamp((alpha - 0.7) / 0.3, 0, 1)
+		end
+	end, function()
+		for _, piece in ipairs(pieces) do
+			piece.part:Destroy()
+		end
+	end)
+end
+
+-- Rocks bursting up in a circle around an impact, then sinking away.
+local function crater(position, radius, count)
+	local ground, material, color = groundAt(position, 14)
+	if not ground then
+		return
+	end
+	local rocks = {}
+	local offset = random:NextNumber(0, math.pi * 2)
+	for i = 1, count do
+		local angle = offset + (i / count) * math.pi * 2 + random:NextNumber(-0.15, 0.15)
+		local dir = Vector3.new(math.cos(angle), 0, math.sin(angle))
+		local size = Vector3.new(random:NextNumber(1.3, 2.4), random:NextNumber(1.1, 2), random:NextNumber(1.3, 2.4))
+		local rest = CFrame.lookAt(ground + dir * radius * random:NextNumber(0.85, 1.15), ground + dir * (radius + 5))
+			* CFrame.Angles(math.rad(random:NextNumber(25, 50)), 0, math.rad(random:NextNumber(-20, 20)))
+		local part = rockPart(material, color, size)
+		part.CFrame = rest - Vector3.new(0, 2.5, 0)
+		rocks[i] = { part = part, rest = rest }
+	end
+	animate(0.14, function(alpha)
+		for _, rock in ipairs(rocks) do
+			rock.part.CFrame = rock.rest - Vector3.new(0, 2.5 * (1 - easeOut(alpha, 3)), 0)
+		end
+	end)
+	task.delay(1.8, function()
+		animate(0.6, function(alpha)
+			for _, rock in ipairs(rocks) do
+				rock.part.CFrame = rock.rest - Vector3.new(0, 2.5 * alpha * alpha, 0)
+				rock.part.Transparency = alpha ^ 3
+			end
+		end, function()
+			for _, rock in ipairs(rocks) do
+				rock.part:Destroy()
+			end
+		end)
+	end)
+	debris(ground, math.floor(count * 0.8), material, color, 1)
 end
 
 ------------------------------------------------------------------------
@@ -140,10 +439,10 @@ local function sparks(parent, count, color, speed)
 		texture = TEX.spark,
 		color = color,
 		lightEmission = 1,
-		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.28), NumberSequenceKeypoint.new(1, 0) }),
-		squash = NumberSequence.new(-1.2),
+		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.32), NumberSequenceKeypoint.new(1, 0) }),
+		squash = NumberSequence.new(-1.4),
 		transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.7, 0.1), NumberSequenceKeypoint.new(1, 1) }),
-		lifetime = NumberRange.new(0.12, 0.3),
+		lifetime = NumberRange.new(0.12, 0.32),
 		speed = NumberRange.new(speed * 0.55, speed),
 		drag = 7,
 		acceleration = Vector3.new(0, -40, 0),
@@ -202,25 +501,11 @@ local function flash(parent, color, brightness, range, duration)
 	end)
 end
 
--- Flat shockwave + dust thrown outward along the ground.
-local function groundBurst(position, radius, color)
-	local center = anchorAt(position + Vector3.new(0, 0.15, 0), 2)
-	emitter(center, {
-		texture = TEX.ring,
-		color = color or Color3.fromRGB(235, 225, 210),
-		lightEmission = 0.4,
-		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, radius * 0.15), NumberSequenceKeypoint.new(1, radius) }),
-		transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.05), NumberSequenceKeypoint.new(1, 1) }),
-		lifetime = NumberRange.new(0.45),
-		speed = NumberRange.new(0.01),
-		spread = Vector2.new(0, 0),
-		orientation = Enum.ParticleOrientation.VelocityPerpendicular,
-		rotation = NumberRange.new(0, 360),
-		count = 1,
-	})
-	for i = 1, 10 do
-		local angle = (i / 10) * math.pi * 2 + random:NextNumber(-0.2, 0.2)
-		local dir = Vector3.new(math.cos(angle), 0.15, math.sin(angle))
+-- Dust thrown outward along the ground.
+local function dustRing(position, radius, count, color)
+	for i = 1, count do
+		local angle = (i / count) * math.pi * 2 + random:NextNumber(-0.2, 0.2)
+		local dir = Vector3.new(math.cos(angle), 0.12, math.sin(angle))
 		local a = Instance.new("Attachment")
 		a.WorldCFrame = CFrame.lookAt(position + dir * 0.6, position + dir * 2)
 		a.Parent = workspace.Terrain
@@ -228,11 +513,11 @@ local function groundBurst(position, radius, color)
 		emitter(a, {
 			texture = TEX.smoke,
 			flipbook = true,
-			color = Color3.fromRGB(170, 160, 148),
+			color = color or Color3.fromRGB(170, 160, 148),
 			lightInfluence = 0.6,
-			size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.4), NumberSequenceKeypoint.new(1, 3.6) }),
+			size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.2), NumberSequenceKeypoint.new(1, 3.4) }),
 			transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.3), NumberSequenceKeypoint.new(1, 1) }),
-			lifetime = NumberRange.new(0.6, 0.9),
+			lifetime = NumberRange.new(0.5, 0.8),
 			speed = NumberRange.new(radius * 0.9, radius * 1.3),
 			spread = Vector2.new(8, 8),
 			direction = Enum.NormalId.Front,
@@ -243,7 +528,134 @@ local function groundBurst(position, radius, color)
 	end
 end
 
+-- Ground shockwave: a flat ring plus dust thrown outward.
+local function groundBurst(position, radius, color)
+	ring(facing(position + Vector3.new(0, 0.2, 0), Vector3.yAxis), color or Color3.fromRGB(240, 232, 220), 1, radius, 0.7, 0.45, 0.25, 28)
+	dustRing(position, radius, 12)
+end
+
 ------------------------------------------------------------------------
+-- Afterimages
+
+local BODY_PARTS = { "Head", "Torso", "Right Arm", "Left Arm", "Right Leg", "Left Leg" }
+
+-- A neon snapshot of the body that fades in place.
+function Effects.afterimage(model, color, duration, transparency)
+	local ghosts = {}
+	for _, name in ipairs(BODY_PARTS) do
+		local part = model:FindFirstChild(name)
+		if part and part:IsA("BasePart") then
+			local ghost = fxPart(color, Enum.Material.Neon)
+			ghost.Size = part.Size
+			ghost.CFrame = part.CFrame
+			ghost.Transparency = transparency
+			local mesh = part:FindFirstChildOfClass("SpecialMesh")
+			if mesh and mesh.MeshType == Enum.MeshType.Head then
+				local copy = Instance.new("SpecialMesh")
+				copy.MeshType = Enum.MeshType.Head
+				copy.Scale = mesh.Scale
+				copy.Parent = ghost
+			end
+			table.insert(ghosts, ghost)
+		end
+	end
+	animate(duration, function(alpha)
+		for _, ghost in ipairs(ghosts) do
+			ghost.Transparency = transparency + (1 - transparency) * alpha
+		end
+	end, function()
+		for _, ghost in ipairs(ghosts) do
+			ghost:Destroy()
+		end
+	end)
+end
+
+-- A string of afterimages left behind while the body moves.
+function Effects.afterimages(model, duration, interval, color, transparency)
+	task.spawn(function()
+		local stop = os.clock() + duration
+		while os.clock() < stop and model.Parent do
+			Effects.afterimage(model, color or Color3.fromRGB(210, 225, 255), 0.22, transparency or 0.6)
+			task.wait(interval or 0.035)
+		end
+	end)
+end
+
+------------------------------------------------------------------------
+-- Movement effects (all clients, for every combatant)
+
+local WIND = Color3.fromRGB(235, 242, 255)
+
+-- Dash: a wind ring punched out behind, dust kicked up, afterimages trail.
+function Effects.dash(model, direction, airborne)
+	local root = model:FindFirstChild("HumanoidRootPart")
+	if not root or not root:IsA("BasePart") then
+		return
+	end
+	direction = (direction * FLAT).Magnitude > 0.01 and (direction * FLAT).Unit or (root.CFrame.LookVector * FLAT).Unit
+	local at = anchorAt(root.Position, 1.5)
+	Effects.sound("Dash", at, 0.45, 0.7)
+	ring(facing(root.Position - direction * 1.2, direction), WIND, 0.8, 4.2, 0.35, 0.28, 0.35, 16)
+	streaks(root.Position, -direction, 6, WIND, 3.2, 4, 25, 0.25, 0.08)
+	Effects.afterimages(model, Config.RollDuration * 0.85, 0.035)
+	if not airborne then
+		local ground = groundAt(root.Position, 5)
+		if ground then
+			local dust = anchorAt(ground + Vector3.new(0, 0.3, 0), 2)
+			smoke(dust, 5, 1.1, 9)
+		end
+	end
+end
+
+-- Double jump: a flat wind ring under the feet.
+function Effects.doubleJump(model)
+	local root = model:FindFirstChild("HumanoidRootPart")
+	if not root or not root:IsA("BasePart") then
+		return
+	end
+	local feet = root.Position - Vector3.new(0, 2.8, 0)
+	ring(facing(feet, Vector3.yAxis), WIND, 0.6, 4.5, 0.4, 0.32, 0.3, 18)
+	streaks(feet, -Vector3.yAxis, 5, WIND, 2.4, 3, 35, 0.22, 0.07)
+	Effects.sound("Dash", anchorAt(feet, 1), 0.3, 1.1)
+end
+
+-- Landing: dust and a small ground ring scaled by fall speed (0..1).
+function Effects.land(position, strength)
+	local ground = groundAt(position, 6)
+	if not ground then
+		return
+	end
+	local dust = anchorAt(ground + Vector3.new(0, 0.3, 0), 2)
+	smoke(dust, math.floor(3 + strength * 6), 0.9 + strength, 4 + strength * 8)
+	if strength > 0.5 then
+		ring(facing(ground + Vector3.new(0, 0.15, 0), Vector3.yAxis), WIND, 0.8, 3 + strength * 3, 0.3, 0.35, 0.45, 18)
+	end
+end
+
+-- Footfall puff while sprinting.
+function Effects.step(position)
+	local ground = groundAt(position, 6)
+	if not ground then
+		return
+	end
+	emitter(anchorAt(ground + Vector3.new(0, 0.2, 0), 1.5), {
+		texture = TEX.smoke,
+		flipbook = true,
+		color = Color3.fromRGB(190, 182, 172),
+		lightInfluence = 0.6,
+		size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.6), NumberSequenceKeypoint.new(1, 1.6) }),
+		transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.55), NumberSequenceKeypoint.new(1, 1) }),
+		lifetime = NumberRange.new(0.35, 0.55),
+		speed = NumberRange.new(1, 3),
+		drag = 3,
+		count = 1,
+	})
+end
+
+-- Sent flying: afterimages and a wind trail behind the body.
+function Effects.knockback(model, duration)
+	Effects.afterimages(model, duration, 0.05, Color3.fromRGB(255, 240, 225), 0.7)
+end
 
 ------------------------------------------------------------------------
 -- Slash skill
@@ -329,12 +741,27 @@ function Effects.dismantleCut(model)
 end
 
 local WARM = Color3.fromRGB(255, 226, 190)
+local HOT = Color3.fromRGB(255, 250, 240)
 local GOLD = Color3.fromRGB(255, 214, 140)
-local STEEL = Color3.fromRGB(205, 220, 240)
+local STEEL = Color3.fromRGB(190, 215, 255)
 local EMBER = Color3.fromRGB(255, 120, 60)
 
--- Plays an effect and returns how much camera shake it should cause.
-function Effects.play(kind, position, attacker)
+local function hitDirection(position, attacker, defender)
+	local a = attacker and attacker:FindFirstChild("HumanoidRootPart")
+	local d = defender and defender:FindFirstChild("HumanoidRootPart")
+	if a and d then
+		local dir = (d.Position - a.Position) * FLAT
+		if dir.Magnitude > 0.05 then
+			return dir.Unit
+		end
+	end
+	local camera = workspace.CurrentCamera
+	return camera and (position - camera.CFrame.Position).Unit or Vector3.zAxis
+end
+
+-- Plays an effect and returns how hard it should hit the camera (0..1).
+-- `info` is the attack kind for hits (or a direction for dashes).
+function Effects.play(kind, position, attacker, defender, info)
 	if kind == "CleaveThrow" then
 		local root = attacker and attacker:FindFirstChild("HumanoidRootPart")
 		local direction = root and (root.CFrame.LookVector * Vector3.new(1, 0, 1)).Unit or Vector3.zAxis
@@ -348,109 +775,152 @@ function Effects.play(kind, position, attacker)
 		sparks(at, 20, BLOOD, 45)
 		flash(at, BLOOD, 6, 14, 0.3)
 		return 0.45
-	elseif kind == "Hit" then
+	end
+
+	local direction = hitDirection(position, attacker, defender)
+
+	if kind == "Hit" then
 		local at = anchorAt(position, 1.5)
-		Effects.sound("Hit", at, 0.7)
-		flipbook(at, TEX.impact, { size0 = 2.2, size1 = 4.6, duration = 0.28, color = WARM })
-		sparks(at, 8, WARM, 38)
-		return 0.18
+		Effects.sound("Hit", at, 0.75)
+		burst(position, HOT, 0.6, 3.4, 0.14)
+		burst(position, WARM, 1.2, 4.4, 0.2, 0.55)
+		ring(facing(position, direction), WARM, 0.4, 3.2, 0.25, 0.2, 0.2, 14)
+		streaks(position, direction, 6, HOT, 2.4, 3.5, 55, 0.18)
+		flipbook(at, TEX.impact, { size0 = 2.2, size1 = 5, duration = 0.26, color = WARM })
+		sparks(at, 9, WARM, 42)
+		return 0.22
 	elseif kind == "HeavyHit" then
 		local at = anchorAt(position, 2)
-		Effects.sound("HeavyHit", at, 0.8)
-		flipbook(at, TEX.impact, { size0 = 3.2, size1 = 7.5, duration = 0.34, color = WARM })
-		sparks(at, 16, WARM, 52)
-		smoke(at, 4, 1.4, 6)
+		local big = info == "Finisher" or info == "Critical"
+		Effects.sound("HeavyHit", at, 0.9, big and 0.85 or 1)
+		Effects.sound("Hit", at, 0.6, 0.8)
+		burst(position, HOT, 1, big and 6.5 or 5, 0.18)
+		burst(position, WARM, 1.6, big and 8 or 6.5, 0.28, 0.5)
+		ring(facing(position, direction), HOT, 0.6, big and 7 or 5.5, 0.45, 0.3, 0.1, 22)
+		ring(facing(position + direction * 1.5, direction), WARM, 0.4, big and 4.5 or 3.5, 0.3, 0.26, 0.3, 18)
+		streaks(position, direction, big and 14 or 10, HOT, 3.4, big and 7 or 5.5, 50, 0.24, 0.14)
+		flipbook(at, TEX.impact, { size0 = 3.2, size1 = 8, duration = 0.32, color = WARM, onTop = true })
+		sparks(at, 18, WARM, 56)
+		smoke(at, 4, 1.4, 7)
 		glow(at, 4, WARM, 0.18)
-		return 0.38
+		flash(at, WARM, 5, 14, 0.22)
+		if defender and big then
+			Effects.knockback(defender, 0.35)
+		end
+		return big and 0.6 or 0.42
 	elseif kind == "Block" then
 		local at = anchorAt(position, 1.5)
 		Effects.sound("Block", at, 0.7, 0.9)
-		flipbook(at, TEX.impact, { size0 = 1.6, size1 = 3.2, duration = 0.22, color = STEEL, transparency = 0.25 })
-		sparks(at, 5, STEEL, 26)
+		burst(position, STEEL, 0.5, 2.6, 0.12, 0.2)
+		ring(facing(position, direction), STEEL, 0.5, 2.8, 0.2, 0.18, 0.25, 14)
+		sparks(at, 7, STEEL, 30)
 		smoke(at, 2, 0.9, 4)
-		return 0.1
+		return 0.12
 	elseif kind == "Parry" then
 		local at = anchorAt(position, 1.5)
-		Effects.sound("Parry", at, 0.8)
-		flipbook(at, TEX.parry, { size0 = 3, size1 = 8.5, duration = 0.36, color = GOLD, onTop = true })
-		sparks(at, 22, GOLD, 60)
-		glow(at, 5, GOLD, 0.16)
-		flash(at, GOLD, 6, 14, 0.2)
-		return 0.24
+		Effects.sound("Parry", at, 0.85)
+		burst(position, HOT, 0.8, 4.5, 0.16)
+		burst(position, GOLD, 1.2, 6, 0.24, 0.45)
+		ring(facing(position, direction), GOLD, 0.6, 6, 0.4, 0.3, 0.05, 22)
+		ring(facing(position, Vector3.yAxis), GOLD, 0.4, 4.5, 0.25, 0.26, 0.3, 18)
+		streaks(position, nil, 14, GOLD, 2.6, 5, 180, 0.24, 0.1)
+		flipbook(at, TEX.parry, { size0 = 3, size1 = 8.5, duration = 0.34, color = GOLD, onTop = true })
+		sparks(at, 24, GOLD, 64)
+		flash(at, GOLD, 7, 16, 0.22)
+		return 0.32
 	elseif kind == "GuardBreak" then
-		local at = anchorAt(position + Vector3.new(0, 0.6, 0), 2)
-		Effects.sound("GuardBreak", at, 0.9)
+		local center = position + Vector3.new(0, 0.6, 0)
+		local at = anchorAt(center, 2)
+		Effects.sound("GuardBreak", at, 0.95)
 		Effects.sound("HeavyHit", at, 0.7, 0.85)
-		flipbook(at, TEX.parry, { size0 = 3.5, size1 = 10, duration = 0.42, color = EMBER, onTop = true })
-		flipbook(at, TEX.impact, { size0 = 3, size1 = 8, duration = 0.4, color = WARM })
-		sparks(at, 26, EMBER, 55)
+		burst(center, HOT, 1, 6, 0.2)
+		burst(center, EMBER, 1.6, 7.5, 0.3, 0.45)
+		ring(facing(center, direction), EMBER, 0.6, 6.5, 0.45, 0.32, 0.1, 22)
+		shards(center, direction, 16, Color3.fromRGB(200, 225, 255))
+		streaks(center, direction, 10, EMBER, 3, 6, 70, 0.26, 0.12)
+		flipbook(at, TEX.parry, { size0 = 3.5, size1 = 10, duration = 0.4, color = EMBER, onTop = true })
+		sparks(at, 26, EMBER, 58)
 		smoke(at, 6, 1.6, 7)
 		flash(at, EMBER, 7, 16, 0.3)
-		return 0.55
+		return 0.65
 	elseif kind == "Slam" then
 		local at = anchorAt(position + Vector3.new(0, 0.5, 0), 2)
-		Effects.sound("HeavyHit", at, 0.9, 0.75)
-		groundBurst(position, 14)
-		sparks(at, 12, WARM, 40)
-		return 0.6
+		Effects.sound("HeavyHit", at, 0.95, 0.72)
+		burst(position + Vector3.new(0, 0.5, 0), HOT, 1, 6, 0.2)
+		groundBurst(position, 15)
+		crater(position, 5.5, 12)
+		streaks(position, Vector3.yAxis, 10, WARM, 3, 6, 60, 0.26, 0.12)
+		sparks(at, 14, WARM, 44)
+		return 0.7
 	elseif kind == "Feint" then
 		local at = anchorAt(position, 1)
 		Effects.sound("Feint", at, 0.35, 1.25)
+		smoke(at, 2, 0.8, 3, Color3.fromRGB(210, 210, 215))
 		return 0
 	elseif kind == "Dodge" then
 		local at = anchorAt(position, 1)
 		smoke(at, 2, 1, 3, Color3.fromRGB(200, 200, 205))
+		if defender then
+			Effects.afterimage(defender, Color3.fromRGB(210, 225, 255), 0.3, 0.45)
+		end
 		return 0
 	end
 	return 0
 end
 
 ------------------------------------------------------------------------
--- Fist trails, switched on around each strike.
+-- Swing trails, switched on around each strike.
+
+local TRAIL_LIMBS = { "Right Arm", "Left Arm", "Right Leg", "Left Leg" }
 
 function Effects.attachTrails(model)
 	local trails = {}
-	for _, armName in ipairs({ "Right Arm", "Left Arm" }) do
-		local arm = model:FindFirstChild(armName)
-		if arm and not arm:FindFirstChild("FistTrail") then
+	for _, limbName in ipairs(TRAIL_LIMBS) do
+		local limb = model:FindFirstChild(limbName)
+		if limb and not limb:FindFirstChild("FistTrail") then
 			local a0 = Instance.new("Attachment")
 			a0.Name = "FistTrailTop"
-			a0.Position = Vector3.new(0, -0.55, 0)
-			a0.Parent = arm
+			a0.Position = Vector3.new(0, -0.45, 0)
+			a0.Parent = limb
 			local a1 = Instance.new("Attachment")
 			a1.Name = "FistTrailBottom"
 			a1.Position = Vector3.new(0, -1.05, 0)
-			a1.Parent = arm
+			a1.Parent = limb
 			local trail = Instance.new("Trail")
 			trail.Name = "FistTrail"
 			trail.Attachment0 = a0
 			trail.Attachment1 = a1
 			trail.Texture = TEX.trail
 			trail.TextureMode = Enum.TextureMode.Stretch
-			trail.Lifetime = 0.14
+			trail.Lifetime = 0.16
 			trail.MinLength = 0.05
-			trail.LightEmission = 0.6
+			trail.LightEmission = 0.8
 			trail.FaceCamera = true
-			trail.Color = ColorSequence.new(Color3.fromRGB(255, 240, 220))
-			trail.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35), NumberSequenceKeypoint.new(1, 1) })
-			trail.WidthScale = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0.3) })
+			trail.Color = ColorSequence.new(Color3.fromRGB(255, 244, 228))
+			trail.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.25), NumberSequenceKeypoint.new(1, 1) })
+			trail.WidthScale = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0.2) })
 			trail.Enabled = false
-			trail.Parent = arm
+			trail.Parent = limb
 		end
-		local trail = arm and arm:FindFirstChild("FistTrail")
+		local trail = limb and limb:FindFirstChild("FistTrail")
 		if trail then
-			table.insert(trails, trail)
+			trails[limbName] = trail
 		end
 	end
 	return trails
 end
 
-function Effects.swingTrails(model, duration)
-	for _, trail in ipairs(Effects.attachTrails(model)) do
-		trail.Enabled = true
-		task.delay(duration, function()
-			trail.Enabled = false
-		end)
+-- `limbs` defaults to both arms.
+function Effects.swingTrails(model, duration, limbs)
+	local trails = Effects.attachTrails(model)
+	for _, limbName in ipairs(limbs or { "Right Arm", "Left Arm" }) do
+		local trail = trails[limbName]
+		if trail then
+			trail.Enabled = true
+			task.delay(duration, function()
+				trail.Enabled = false
+			end)
+		end
 	end
 end
 

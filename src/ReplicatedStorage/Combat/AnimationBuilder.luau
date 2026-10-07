@@ -31,9 +31,19 @@ local EASING = {
 	Constant = Enum.PoseEasingStyle.Constant,
 	Quad = Enum.PoseEasingStyle.CubicV2,
 	Cubic = Enum.PoseEasingStyle.CubicV2,
+	Quart = Enum.PoseEasingStyle.CubicV2,
+	Quint = Enum.PoseEasingStyle.CubicV2,
+	Exponential = Enum.PoseEasingStyle.CubicV2,
+	Circular = Enum.PoseEasingStyle.CubicV2,
+	Back = Enum.PoseEasingStyle.CubicV2,
 	Sine = Enum.PoseEasingStyle.CubicV2,
 	Elastic = Enum.PoseEasingStyle.Elastic,
 	Bounce = Enum.PoseEasingStyle.Bounce,
+}
+
+-- PoseAnimator has an in-between priority Roblox doesn't.
+local PRIORITY = {
+	MovementOverlay = Enum.AnimationPriority.Movement,
 }
 
 -- Converts a parent-space pose into the Motor6D.Transform the pose represents.
@@ -75,7 +85,8 @@ function AnimationBuilder.build(name)
 	local sequence = Instance.new("KeyframeSequence")
 	sequence.Name = name
 	sequence.Loop = data.looped == true
-	sequence.Priority = Enum.AnimationPriority[data.priority or "Action"]
+	local priority = data.priority or "Action"
+	sequence.Priority = PRIORITY[priority] or Enum.AnimationPriority[priority]
 
 	local used = usedJoints(data)
 	local last = {}

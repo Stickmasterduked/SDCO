@@ -6,6 +6,7 @@ local RunService = game:GetService("RunService")
 local FLAT = Vector3.new(1, 0, 1)
 local DASH_STEER_RATE = 9
 local DASH_MIN_SPEED = 14
+local ORBIT_MIN_RADIUS = 7
 
 local Motion = {}
 
@@ -66,8 +67,9 @@ end
 
 -- A burst that starts fast and eases out. While it runs, the movement keys
 -- steer it, so a dash can curve around someone instead of locking you into
--- a straight line.
-function Motion.dash(root, velocity, duration)
+-- a straight line. With `orbit` (a target's root part) a sideways dash
+-- circles the target at roughly its starting distance instead.
+function Motion.dash(root, velocity, duration, orbit)
 	Motion.stop(root)
 
 	local speed = (velocity * FLAT).Magnitude
@@ -77,6 +79,16 @@ function Motion.dash(root, velocity, duration)
 	local direction = (velocity * FLAT).Unit
 	local humanoid = root.Parent and root.Parent:FindFirstChildOfClass("Humanoid")
 	local push = makePush(root, Vector2.new(direction.X, direction.Z) * speed)
+
+	local orbitSign, orbitRadius
+	if orbit then
+		local offset = (orbit.Position - root.Position) * FLAT
+		if offset.Magnitude > 0.5 and math.abs(direction:Dot(offset.Unit)) < 0.65 then
+			local tangent = offset.Unit:Cross(Vector3.yAxis)
+			orbitSign = direction:Dot(tangent) >= 0 and 1 or -1
+			orbitRadius = math.max(offset.Magnitude, ORBIT_MIN_RADIUS)
+		end
+	end
 
 	local start = os.clock()
 	local connection
@@ -90,7 +102,14 @@ function Motion.dash(root, velocity, duration)
 			return
 		end
 
-		if humanoid then
+		local offset = orbitSign and orbit.Parent and (orbit.Position - root.Position) * FLAT
+		if offset and offset.Magnitude > 0.5 then
+			-- tangent around the target, nudged back toward the orbit radius
+			local radial = offset.Unit
+			local tangent = radial:Cross(Vector3.yAxis) * orbitSign
+			local correction = math.clamp((offset.Magnitude - orbitRadius) * 0.8, -0.6, 0.6)
+			direction = (tangent + radial * correction).Unit
+		elseif humanoid then
 			local move = humanoid.MoveDirection * FLAT
 			if move.Magnitude > 0.1 then
 				local blended = direction:Lerp(move.Unit, math.min(1, dt * DASH_STEER_RATE))
@@ -100,7 +119,7 @@ function Motion.dash(root, velocity, duration)
 			end
 		end
 
-		local current = math.max(DASH_MIN_SPEED, speed * (1 - alpha * alpha))
+		local current = math.max(DASH_MIN_SPEED, speed * (1 - alpha) ^ 1.6)
 		push.PlaneVelocity = Vector2.new(direction.X, direction.Z) * current
 	end)
 end
@@ -153,12 +172,13 @@ function Motion.hover(root, duration, delay)
 	end
 end
 
--- One entry point for the server's Impulse remote.
-function Motion.apply(root, kind, velocity, duration, delay)
+-- One entry point for the server's Impulse remote. `orbit` is only used by
+-- dashes (see Motion.dash).
+function Motion.apply(root, kind, velocity, duration, delay, orbit)
 	if kind == "push" then
 		Motion.push(root, velocity, duration)
 	elseif kind == "dash" then
-		Motion.dash(root, velocity, duration)
+		Motion.dash(root, velocity, duration, orbit)
 	elseif kind == "stop" then
 		Motion.stop(root)
 	elseif kind == "hover" then
