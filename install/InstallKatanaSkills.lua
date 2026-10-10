@@ -4532,6 +4532,9 @@ local Data = require(script.KatanaFXData)
 
 local KatanaFX = {}
 
+-- overall brightness of the glows, flashes and lights (1 = original)
+local GLOW_DIM = 0.45
+
 local FLAT = Vector3.new(1, 0, 1)
 local random = Random.new()
 local localPlayer = Players.LocalPlayer
@@ -5105,7 +5108,7 @@ local function spriteLayer(layer, frame, follow)
 	end
 	emitter.Rotation = NumberRange.new(rotation)
 	emitter.RotSpeed = NumberRange.new(layer.spin or 0)
-	setBrightness(emitter, layer.brightness or 1)
+	setBrightness(emitter, (layer.brightness or 1) * GLOW_DIM)
 	emitter.Parent = attachment
 	emitter:Emit(1)
 	if follow then
@@ -5161,7 +5164,7 @@ local function sparksLayer(layer, frame)
 		})
 		emitter.Color = ColorSequence.new(rgb(layer.color), rgb(layer.tint or layer.color))
 		emitter.Squash = NumberSequence.new(-1.2)
-		setBrightness(emitter, 3)
+		setBrightness(emitter, 3 * GLOW_DIM)
 		emitter.Parent = attachment
 		emitter:Emit(count)
 		Debris:AddItem(attachment, layer.life[2] + 0.2)
@@ -5260,7 +5263,7 @@ local function makeEmitter(layer, texture)
 			emitter.FlipbookMode = Enum.ParticleFlipbookMode.OneShot
 		end)
 	end
-	setBrightness(emitter, layer.brightness or 1)
+	setBrightness(emitter, (layer.brightness or 1) * GLOW_DIM)
 	return emitter
 end
 
@@ -5348,7 +5351,7 @@ local function lightLayer(layer, resolveFrame)
 			return false
 		end
 		attachment.Position = f.Position
-		light.Brightness = ev(layer.brightness, u)
+		light.Brightness = ev(layer.brightness, u) * GLOW_DIM
 		light.Range = ev(layer.range, u)
 		return true
 	end, function()
@@ -5792,7 +5795,7 @@ local function cameraLayer(layer, frame, attacker, defender)
 		CameraFX.impactFrame(cue.impact * falloff)
 	end
 	if cue.flash then
-		CameraFX.flash(cue.flash * falloff, FLASH_TINT)
+		CameraFX.flash(cue.flash * falloff * GLOW_DIM, FLASH_TINT)
 	end
 	if cue.blur then
 		CameraFX.blur(cue.blur * falloff)
@@ -5919,7 +5922,7 @@ local function newProjectile(model, origin, direction, spec, tilt)
 	self.lightAttachment = attachmentAt(origin)
 	local light = Instance.new("PointLight")
 	light.Color = rgb(P.light.color)
-	light.Brightness = P.light.brightness
+	light.Brightness = P.light.brightness * GLOW_DIM
 	light.Range = P.light.range
 	light.Shadows = false
 	light.Parent = self.lightAttachment
