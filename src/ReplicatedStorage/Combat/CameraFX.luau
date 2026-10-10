@@ -1,16 +1,4 @@
---[[
-	Client camera feel: subtle all the time, loud only on impact.
-
-	  - FOV widens with speed (sprinting) and kicks out on dashes
-	  - the camera tilts slightly into strafes and side dashes, bobs on a sprint
-	  - hits punch the camera along the hit direction and shake it
-	  - big hits flash an "impact frame" (contrast spike) and a blur pulse
-
-	Everything is layered on top of Roblox's camera without fighting it:
-	the offset applied last frame is removed just before the default camera
-	updates, then re-applied after it, so nothing accumulates or drifts.
-	All strengths scale with Config.Camera.Intensity (0 disables it all).
-]]
+--boi.. its not that big tot stop 
 
 local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
@@ -24,8 +12,8 @@ local STEP = 1 / 240
 
 local CameraFX = {}
 
-------------------------------------------------------------------------
--- Springs (substepped so frame drops can't blow them up)
+
+-- Springs idk i asked google
 
 local function spring(stiffness, damping, zero)
 	return { pos = zero, vel = zero, k = stiffness, c = damping }
@@ -65,13 +53,12 @@ end
 ------------------------------------------------------------------------
 -- API
 
--- Adds shake. `amount` around 0.1 is a tap, 0.6 a big slam.
+-- Adds shake. `amount` around 0.1 is a tap, 0.6 a big slam like that katana stuff .
 function CameraFX.shake(amount)
 	trauma = math.min(1, trauma + amount)
 end
 
--- Knocks the camera along `direction` (world space) and tips it, like the
--- shot itself hit the lens.
+-- Knocks the camera along 
 function CameraFX.punch(direction, strength)
 	local camera = workspace.CurrentCamera
 	if not camera or direction.Magnitude < 0.001 then
@@ -86,11 +73,12 @@ end
 function CameraFX.fovKick(amount)
 	fovSpring.vel += amount * 14
 end
-
+-- ^ this might be what ur looking for, not this line specifcally 
 function CameraFX.rollKick(degrees)
 	rollSpring.vel += degrees * 14
 end
-
+--
+-- something to do with it for some odd reason accelerating instead of properly rotating lemme show u what i mean,  ight bet good boy lemme find you the code
 -- A one-frame-ish contrast spike, optionally tinted.
 function CameraFX.impactFrame(strength, tint)
 	if not SETTINGS.ImpactFrames then
@@ -104,7 +92,17 @@ function CameraFX.blur(size)
 	blurAmount = math.max(blurAmount, size)
 end
 
-------------------------------------------------------------------------
+-- A bright screen flash (parries, slams), optionally tinted. 1 is blinding.
+local flashAmount = 0
+local flashTint = Color3.new(1, 1, 1)
+function CameraFX.flash(strength, tint)
+	if strength > flashAmount then
+		flashAmount = strength
+		flashTint = tint or Color3.new(1, 1, 1)
+	end
+end
+
+
 -- Per-frame
 
 local function ensureEffects()
@@ -191,10 +189,13 @@ local function update(dt)
 	ensureEffects()
 	impactAmount = math.max(0, impactAmount - dt * 9)
 	local frame = impactAmount * scale
+	flashAmount = math.max(0, flashAmount - dt * 7)
+	local flashNow = flashAmount * flashAmount * scale
 	impact.Contrast = frame * 0.9
 	impact.Saturation = -frame * 0.5
-	impact.Brightness = frame * 0.08
-	impact.TintColor = Color3.new(1, 1, 1):Lerp(impactTint, math.min(1, frame))
+	impact.Brightness = frame * 0.08 + flashNow * 0.55
+	local tint = flashNow > frame and flashTint or impactTint
+	impact.TintColor = Color3.new(1, 1, 1):Lerp(tint, math.min(1, math.max(frame, flashNow)))
 	blurAmount = math.max(0, blurAmount - dt * 40)
 	blur.Size = blurAmount * scale
 end

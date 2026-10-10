@@ -5,9 +5,10 @@ local CombatService = require(script.Parent.CombatService)
 local Remotes = ReplicatedStorage.Combat.Remotes
 
 local RESPAWN_DELAY = 3
-local MAX_ACTIONS_PER_SECOND = 24
+local MAX_ACTIONS_PER_SECOND = 30
 
--- Players spawn as R6 with their own avatar.
+-- Players spawn as classic blocky R6: their own clothes, accessories, face
+-- and skin colours, but no body packages or custom heads.
 Players.CharacterAutoLoads = false
 
 local function getSpawnCFrame()
@@ -25,6 +26,20 @@ local function spawnCharacter(player)
 	if not ok then
 		description = Instance.new("HumanoidDescription")
 	end
+
+	-- force the blocky body: 0 = the default block part for each slot
+	description.Head = 0
+	description.Torso = 0
+	description.LeftArm = 0
+	description.RightArm = 0
+	description.LeftLeg = 0
+	description.RightLeg = 0
+	description.HeightScale = 1
+	description.WidthScale = 1
+	description.DepthScale = 1
+	description.HeadScale = 1
+	description.BodyTypeScale = 0
+	description.ProportionScale = 0
 
 	local character = Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R6)
 	character.Name = player.Name
@@ -80,24 +95,43 @@ Players.PlayerRemoving:Connect(function(player)
 end)
 
 local handlers = {
-	M1 = function(c, arg)
+	-- the input's sequence number doubles as the attack id for hit claims
+	M1 = function(c, arg, sequence)
 		local options = type(arg) == "table" and arg or {}
 		return CombatService.m1(c, {
 			launcher = options.launcher == true,
 			airborne = options.airborne == true,
-		}, true)
+		}, true, sequence)
 	end,
-	Critical = function(c)
-		return CombatService.critical(c, true)
+	Critical = function(c, _, sequence)
+		return CombatService.critical(c, true, sequence)
 	end,
-	Skill = function(c)
-		return CombatService.skill(c, true)
+	-- H: Low Sweep (owner-only, checked in CombatService)
+	LowSweep = function(c, _, sequence)
+		return CombatService.lowSweep(c, true, sequence)
+	end,
+	-- Space just after an M1: that strike becomes an uptilt
+	Launch = function(c, _, sequence)
+		return CombatService.launch(c, true, sequence)
+	end,
+	-- the client's own hit detection: { id = attack id, target = model,
+	-- start = where a grab was made from (Head Drive only) }
+	Hit = function(c, arg)
+		if type(arg) ~= "table" or type(arg.id) ~= "number" or typeof(arg.target) ~= "Instance" then
+			return false
+		end
+		local start = typeof(arg.start) == "CFrame" and arg.start or nil
+		return CombatService.claimHit(c, arg.id, arg.target, start)
+	end,
+	HeadDrive = function(c, _, sequence)
+		return CombatService.headDrive(c, true, sequence)
 	end,
 	Feint = function(c)
 		return CombatService.feint(c, true)
 	end,
 	BlockDown = function(c, arg)
-		return CombatService.blockDown(c, arg == true, true)
+		local parryOnly = type(arg) == "table" and arg.parryOnly == true
+		return CombatService.blockDown(c, arg == true, true, parryOnly)
 	end,
 	BlockUp = function(c)
 		return CombatService.blockUp(c, true)
@@ -113,7 +147,17 @@ local handlers = {
 	Sprint = function(c, arg)
 		return CombatService.setSprint(c, arg == true)
 	end,
+	Equip = function(c, arg)
+		return CombatService.setEquipped(c, arg == true, true)
+	end,
+	-- E with a katana: draw it / put it away (fists otherwise)
+	Katana = function(c, arg)
+		return CombatService.setKatana(c, arg == true, true)
+	end,
 }
+
+-- Fighting with your fists down puts them up.
+local AUTO_EQUIP = { M1 = true, Critical = true, BlockDown = true, HeadDrive = true, LowSweep = true }
 
 Remotes.Action.OnServerEvent:Connect(function(player, action, sequence, arg)
 	local handler = type(action) == "string" and handlers[action]
@@ -126,8 +170,21 @@ Remotes.Action.OnServerEvent:Connect(function(player, action, sequence, arg)
 		return
 	end
 
-	local accepted, anim = handler(c, arg)
+	if AUTO_EQUIP[action] and not c.equipped then
+		CombatService.setEquipped(c, true, true, true)
+	end
+
+	local accepted, anim, speed = handler(c, arg, type(sequence) == "number" and sequence or nil)
 	if type(sequence) == "number" then
-		Remotes.Ack:FireClient(player, sequence, accepted == true, anim)
+		local remainingM1Lock = math.max(0, (c.m1ReadyAt or 0) - os.clock())
+		Remotes.Ack:FireClient(player, sequence, accepted == true, anim, {
+			character = c.model,
+			speed = accepted == true and type(speed) == "number" and speed or nil,
+			parryM1Token = c.parryM1Token or 0,
+			parryM1Consumed = c.parryM1Consumed or 0,
+			parryOnly = action == "BlockDown" and accepted == true and c.stunParry == true,
+			m1ReadyAt = remainingM1Lock > 0 and workspace:GetServerTimeNow() + remainingM1Lock or 0,
+		})
 	end
 end)
+

@@ -2,15 +2,22 @@
 	Server-authoritative combat. Every character that can fight (players and
 	dummies) is a combatant with one state machine:
 
-	  Idle, Attacking, Blocking, Rolling, Stunned, Parried, GuardBroken
+	  Idle, Attacking, Blocking, Rolling, Stunned, Parried, GuardBroken,
+	  Grabbing / Grabbed (Head Drive), GetUp (just let go of: can block or
+	  dash, can't attack yet)
 
 	Juggling is tracked alongside the state: a juggled combatant floats
 	(Motion.hover) for a short time after each air hit and is released if
 	they block or dash out, the juggle times out, or they get slammed.
 
-	The client only sends inputs. Timing, hit detection, damage, posture and
-	parry resolution all happen here. Effects carry the attack kind so every
-	client can scale its hit effects, hit-stop and camera kick to the move.
+	The client sends inputs, and for a player's own strikes also the hit
+	itself: its client finds the target at its hit frame (so feedback is
+	instant) and CombatService.claimHit validates that claim against the
+	server's positions and timing. Damage, posture, parry and block
+	resolution all happen here. Dummies are detected on the server.
+	Effects carry the attack kind so every client can scale its hit effects,
+	hit-stop and camera kick to the move, and the attack id so the attacker
+	(who already played them) can skip its own.
 ]]
 
 local CollectionService = game:GetService("CollectionService")
@@ -22,6 +29,8 @@ local CombatShared = ReplicatedStorage.Combat
 local Config = require(CombatShared.Config)
 local AnimationData = require(CombatShared.AnimationData)
 local Motion = require(CombatShared.Motion)
+local Hitbox = require(CombatShared.Hitbox)
+local HeadDrive = require(CombatShared.HeadDrive)
 local Remotes = CombatShared.Remotes
 
 local FLAT = Vector3.new(1, 0, 1)
@@ -30,6 +39,9 @@ local CombatService = {}
 
 local combatants = {}
 CombatService.Combatants = combatants
+
+local grabs = {} -- [attacker] = the Head Drive it's performing
+local cancelGrab -- defined with Head Drive below
 
 local attackStarted = Instance.new("BindableEvent")
 -- (attacker, attackKind, hitTime) - lets dummies react to incoming attacks
@@ -44,15 +56,15 @@ end
 ------------------------------------------------------------------------
 -- Replication helpers
 
-local function playAnim(c, name, predicted, stop)
+local function playAnim(c, name, predicted, stop, speed)
 	if c.player and predicted then
 		for _, player in ipairs(Players:GetPlayers()) do
 			if player ~= c.player then
-				Remotes.Anim:FireClient(player, c.model, name, stop)
+				Remotes.Anim:FireClient(player, c.model, name, stop, speed)
 			end
 		end
 	else
-		Remotes.Anim:FireAllClients(c.model, name, stop)
+		Remotes.Anim:FireAllClients(c.model, name, stop, speed)
 	end
 end
 
@@ -61,8 +73,9 @@ local function stopAnim(c, name, predicted)
 end
 
 -- `info` is the attack kind for hits, or the direction for a dash.
-local function effect(kind, position, attacker, defender, info)
-	Remotes.Effect:FireAllClients(kind, position, attacker and attacker.model, defender and defender.model, info)
+-- `attackId` lets the attacker's client skip effects it already predicted.
+local function effect(kind, position, attacker, defender, info, attackId, details)
+	Remotes.Effect:FireAllClients(kind, position, attacker and attacker.model, defender and defender.model, info, attackId, details)
 end
 
 -- Movement runs where the character's physics lives: the owning client for
@@ -109,11 +122,14 @@ local function walkSpeedFor(c)
 	elseif state == "Blocking" then
 		return Config.BlockWalkSpeed
 	elseif state == "Attacking" then
-		return Config.AttackWalkSpeed
+		local attack = c.attack and c.attack.def
+		return attack and attack.walkSpeed or Config.AttackWalkSpeed
 	elseif state == "Rolling" then
 		return Config.WalkSpeed
-	elseif state == "GuardBroken" or state == "Captured" or state == "Kneeling" then
+	elseif state == "GuardBroken" or state == "Grabbing" or state == "Grabbed" then
 		return 0
+	elseif state == "Stunned" and c.knockedDown then
+		return 0 -- swept off their feet
 	end
 	return Config.StunWalkSpeed
 end
@@ -123,9 +139,21 @@ local function applyMovement(c)
 	c.humanoid.JumpHeight = (c.state == "Idle") and Config.JumpHeight or 0
 end
 
+local function clearStunParry(c)
+	if c.stunParry then
+		c.stunParry = false
+		c.parryUntil = 0
+		c.model:SetAttribute("StunParry", false)
+	end
+end
+
 local function setState(c, state, duration)
+	if state ~= "Stunned" then
+		clearStunParry(c)
+	end
 	c.state = state
 	c.token += 1
+	c.knockedDown = false
 	c.model:SetAttribute("CombatState", state)
 	applyMovement(c)
 
@@ -141,8 +169,67 @@ local function setState(c, state, duration)
 end
 
 local function setPosture(c, value)
-	c.posture = math.clamp(value, 0, c.maxPosture)
+	c.posture = c.model:GetAttribute("InfinitePosture") == true and 0 or math.clamp(value, 0, c.maxPosture)
 	c.model:SetAttribute("Posture", math.floor(c.posture + 0.5))
+end
+
+function CombatService.setInfinitePosture(model, enabled)
+	local wasEnabled = model:GetAttribute("InfinitePosture") == true
+	model:SetAttribute("InfinitePosture", enabled == true)
+	local c = combatants[model]
+	if c and (enabled or wasEnabled) then
+		setPosture(c, 0)
+	elseif enabled then
+		model:SetAttribute("Posture", 0)
+	end
+end
+
+-- I-frames (dashes, being downslammed, the end of a Head Drive). Published
+-- as server time so attackers' clients don't predict hits that won't land.
+local function setIFrames(c, untilTime)
+	c.iframesUntil = untilTime
+	c.model:SetAttribute("IFramesUntil", workspace:GetServerTimeNow() + math.max(0, untilTime - now()))
+end
+
+-- Cooldowns are published as server time so the owner's client shows (and
+-- predicts) the real one, including whiff refunds.
+local COOLDOWN_ATTRIBUTE = { critReadyAt = "CritReady", sweepReadyAt = "SweepReady", grabReadyAt = "GrabReady" }
+local function setCooldown(c, field, readyAt)
+	c[field] = readyAt
+	local name = COOLDOWN_ATTRIBUTE[field]
+	if name then
+		c.model:SetAttribute(name, workspace:GetServerTimeNow() + math.max(0, readyAt - now()))
+	end
+end
+
+-- A successful parry arms one faster M1. Monotonic grant/consume tokens let
+-- the owner predict it without a late attribute update restoring a spent
+-- charge. Parrying again refreshes the single charge instead of stacking it.
+local function grantParryM1(c)
+	c.parryM1Token += 1
+	c.model:SetAttribute("ParryM1Token", c.parryM1Token)
+end
+
+local function attackSpeed(c, attack, inheritedSpeed)
+	-- Turning the M1 already in flight into an uptilt retains that strike's
+	-- speed; it isn't another M1 press and cannot consume a newer reward.
+	if inheritedSpeed then
+		return inheritedSpeed
+	end
+	if attack.isM1 and c.parryM1Token > c.parryM1Consumed then
+		c.parryM1Consumed = c.parryM1Token
+		c.model:SetAttribute("ParryM1Consumed", c.parryM1Consumed)
+		return Config.ParryM1SpeedMultiplier
+	end
+	return 1
+end
+
+-- A move that whiffed goes on the (shorter) whiff cooldown instead.
+local function refundWhiff(c, field, started, cooldown)
+	local whiffReady = started + math.min(cooldown, Config.WhiffCooldown)
+	if c[field] and whiffReady < c[field] then
+		setCooldown(c, field, whiffReady)
+	end
 end
 
 local function isFacing(defender, attacker)
@@ -212,9 +299,7 @@ end
 ------------------------------------------------------------------------
 -- Hits
 
-local overlap = OverlapParams.new()
-overlap.FilterType = Enum.RaycastFilterType.Include
-
+-- Server-side detection (dummies' strikes).
 local function findTarget(c, attack)
 	local candidates = {}
 	for model, other in pairs(combatants) do
@@ -222,36 +307,17 @@ local function findTarget(c, attack)
 			table.insert(candidates, model)
 		end
 	end
-	if #candidates == 0 then
-		return nil
-	end
-	overlap.FilterDescendantsInstances = candidates
-
-	local height = attack.height or 6
-	local boxCFrame = CFrame.lookAlong(c.root.Position, flat(c.root.CFrame.LookVector).Unit)
-		* CFrame.new(0, attack.height and -1.5 or 0, -attack.range / 2)
-	local parts = workspace:GetPartBoundsInBox(boxCFrame, Vector3.new(attack.width, height, attack.range), overlap)
-
-	local best, bestDistance
-	for _, part in ipairs(parts) do
-		local other = combatants[part.Parent]
-		if other and other ~= c then
-			local distance = (other.root.Position - c.root.Position).Magnitude
-			if not bestDistance or distance < bestDistance then
-				best, bestDistance = other, distance
-			end
-		end
-	end
-	return best
+	local model = Hitbox.find(c.root, attack, candidates)
+	return model and combatants[model]
 end
 
-local function guardBreak(defender, attacker, attack, kind)
+local function guardBreak(defender, attacker, attack, kind, attackId)
 	defender.attack = nil
 	defender.combo = 0
 	defender.blockReadyAt = now() + Config.GuardBreakStun + Config.BlockCooldown
 	releaseJuggle(defender)
 	setPosture(defender, 0)
-	effect("GuardBreak", defender.root.Position, attacker, defender, kind)
+	effect("GuardBreak", defender.root.Position, attacker, defender, kind, attackId)
 	if damage(defender, attack.damage * Config.GuardBreakDamageMult) then
 		return
 	end
@@ -260,34 +326,52 @@ local function guardBreak(defender, attacker, attack, kind)
 	push(defender, flat(attacker.root.CFrame.LookVector) * 14, 0.15)
 end
 
-local function resolveHit(attacker, defender, attack, kind)
+-- `clientDriven`: the attacker is a player whose client already moved
+-- itself (lunges, launcher self-launch) and played the hit effects.
+local function resolveHit(attacker, defender, attack, kind, attackId, clientDriven)
 	local t = now()
-	if not isAlive(defender) or t < defender.invincibleUntil then
-		return
-	end
-	-- Held by the slash skill: extra hits still hurt but don't break the hold.
-	if defender.state == "Captured" then
-		effect("Hit", defender.root.Position + Vector3.new(0, 0.6, 0), attacker, defender)
-		damage(defender, attack.damage)
+	if not isAlive(defender) then
 		return
 	end
 	if t < defender.iframesUntil then
-		effect("Dodge", defender.root.Position, attacker, defender)
+		effect("Dodge", defender.root.Position, attacker, defender, kind, attackId)
 		return
+	end
+	-- Held in someone's Head Drive: extra hits still hurt but don't free them.
+	if defender.state == "Grabbed" then
+		effect("Hit", defender.root.Position + Vector3.new(0, 0.6, 0), attacker, defender, kind, attackId)
+		damage(defender, attack.damage)
+		return
+	end
+	-- Hitting someone mid-Head-Drive knocks them off it (their victim is let go).
+	if defender.grab and defender.state == "Grabbing" then
+		cancelGrab(defender.grab)
 	end
 
 	local contact = defender.root.Position:Lerp(attacker.root.Position, 0.4) + Vector3.new(0, 0.6, 0)
 	local facing = isFacing(defender, attacker)
-	local stunnable = defender.state ~= "Stunned" and defender.state ~= "GuardBroken" and defender.state ~= "Parried"
+	local stunParry = defender.state == "Stunned" and defender.stunParry and not defender.knockedDown
+	local stunnable = defender.state ~= "GuardBroken" and defender.state ~= "Parried"
+		and (defender.state ~= "Stunned" or stunParry)
 
 	-- Parry: negates everything, refunds the parry, recovers posture, recoils the attacker.
 	if facing and t <= defender.parryUntil and stunnable then
 		defender.parryUntil = 0
 		defender.parryReadyAt = 0
+		if stunParry then
+			defender.nextActionAt = t
+			setState(defender, "Idle")
+			if defender.stunAnim then
+				stopAnim(defender, defender.stunAnim)
+				defender.stunAnim = nil
+			end
+		end
+		grantParryM1(defender)
 		setPosture(defender, defender.posture - Config.ParryPostureRecover)
 
 		attacker.attack = nil
 		attacker.combo = 0
+		attacker.model:SetAttribute("Combo", 0)
 		-- Can't attack again for a moment, but can still parry the counter:
 		-- that's what makes parry trading possible.
 		attacker.nextActionAt = t + Config.ParriedStun
@@ -295,7 +379,11 @@ local function resolveHit(attacker, defender, attack, kind)
 		stopMotion(attacker)
 		playAnim(attacker, "Parried")
 		playAnim(defender, "BlockImpact")
-		effect("Parry", contact, attacker, defender, kind)
+		effect("Parry", contact, attacker, defender, kind, attackId, {
+			parryM1Token = defender.parryM1Token,
+			parryM1Consumed = defender.parryM1Consumed,
+			stunParry = stunParry == true,
+		})
 		if not isJuggled(defender, t) then
 			stopHover(attacker)
 		end
@@ -308,13 +396,15 @@ local function resolveHit(attacker, defender, attack, kind)
 		local postureDamage = attack.posture * (shaky and Config.ShakyPostureMult or 1)
 		defender.lastPostureGain = t
 
-		if defender.posture + postureDamage >= defender.maxPosture then
-			guardBreak(defender, attacker, attack, kind)
+		if defender.model:GetAttribute("InfinitePosture") ~= true and defender.posture + postureDamage >= defender.maxPosture then
+			guardBreak(defender, attacker, attack, kind, attackId)
 			return
 		end
 
 		setPosture(defender, defender.posture + postureDamage)
-		effect("Block", contact, attacker, defender, kind)
+		-- Blocking absorbs the hit, but the attacker still advances through
+		-- the string instead of replaying the first (right-hook) strike.
+		effect("Block", contact, attacker, defender, kind, attackId)
 		playAnim(defender, "BlockImpact")
 		push(defender, flat(attacker.root.CFrame.LookVector) * 2.5, 0.08)
 		damage(defender, attack.damage * Config.ChipDamage)
@@ -322,8 +412,9 @@ local function resolveHit(attacker, defender, attack, kind)
 	end
 
 	-- Clean hit: damage, interrupt, hitstun, knockback.
+	clearStunParry(defender)
 	local heavy = attack.heavy or attack.knockback >= 18 or attack.launcher or attack.slam
-	effect(heavy and "HeavyHit" or "Hit", contact, attacker, defender, kind)
+	effect(heavy and "HeavyHit" or "Hit", contact, attacker, defender, kind, attackId)
 	if damage(defender, attack.damage) then
 		releaseJuggle(defender)
 		return
@@ -345,9 +436,13 @@ local function resolveHit(attacker, defender, attack, kind)
 	local direction = flat(attacker.root.CFrame.LookVector)
 
 	if attack.slam then
-		-- Spiked into the ground: long stun, ground impact where they land.
+		-- Spiked into the ground, but free to act immediately.
 		releaseJuggle(defender)
-		setState(defender, "Stunned", Config.SlamStun)
+		defender.nextActionAt = t
+		defender.parryUntil = 0
+		setState(defender, "Idle")
+		-- no ground follow-ups on someone you've just spiked
+		setIFrames(defender, t + Config.SlamIFrames)
 		playAnim(defender, "Slammed")
 		local ground = groundBelow(defender)
 		local fall = math.max(0, defender.root.Position.Y - ground.Y - 3)
@@ -359,14 +454,19 @@ local function resolveHit(attacker, defender, attack, kind)
 	end
 
 	setState(defender, "Stunned", attack.hitstun)
+	if attack.knockdown then
+		defender.knockedDown = true
+		applyMovement(defender)
+	end
 	local react
-	if attack.react == "Knockback" then
+	if attack.react == "Knockback" or attack.forceReact then
 		react = "Knockback"
 	elseif not facing then
 		react = "HitBack"
 	else
 		react = attack.react or "HitFront"
 	end
+	defender.stunAnim = react
 	playAnim(defender, react)
 
 	if attack.juggle then
@@ -382,7 +482,7 @@ local function resolveHit(attacker, defender, attack, kind)
 			local apex = attack.launcher and Config.LaunchApexDelay or 0
 			push(defender, direction * attack.knockback + Vector3.new(0, attack.launch or 0, 0), 0.12)
 			hover(defender, Config.JuggleHover, apex)
-			if attack.selfLaunch then
+			if attack.selfLaunch and not clientDriven then
 				push(attacker, Vector3.new(0, attack.selfLaunch, 0), 0)
 				hover(attacker, Config.AirAttackHover, apex)
 			end
@@ -391,20 +491,46 @@ local function resolveHit(attacker, defender, attack, kind)
 		releaseJuggle(defender)
 	end
 
-	push(defender, direction * attack.knockback + Vector3.new(0, attack.launch or 0, 0), attack.pushTime or 0.15)
+	local velocity = direction * attack.knockback + Vector3.new(0, attack.launch or 0, 0)
+	if attack.react == "Knockback" then
+		motion(defender, "knockback", velocity, attack.hitstun)
+	else
+		push(defender, velocity, attack.pushTime or 0.15)
+	end
 end
 
-local function startAttack(c, kind, predicted)
+-- `attackId` is the client's input sequence number for a player's strike;
+-- with it, that client reports the hit itself (see claimHit).
+local function startAttack(c, kind, predicted, attackId, inheritedSpeed)
 	local attack = Config.Attacks[kind]
-	local anim = AnimationData[attack.anim]
-	local hitDelay = anim.markers.Hit
+	local speed = attackSpeed(c, attack, inheritedSpeed)
+	-- the katana's (heavier) clip has its own timing while it's drawn
+	local animName = attack.anim
+	if c.model:GetAttribute("Weapon") == "Katana" and c.model:GetAttribute("KatanaDrawn") == true
+		and AnimationData["Katana_" .. animName] and AnimationData["Katana_" .. animName].markers then
+		animName = "Katana_" .. animName
+	end
+	local anim = AnimationData[animName]
+	local hitDelay = anim.markers.Hit / speed
+	local recover = anim.recover / speed
 	local t = now()
+	local clientDriven = c.player ~= nil and predicted and attackId ~= nil
 
+	local a = { kind = kind, def = attack, started = t, hitAt = t + hitDelay, id = attackId, clientDriven = clientDriven, speed = speed }
+	c.attack = a
 	local token = setState(c, "Attacking")
-	c.attack = { kind = kind, def = attack, started = t, hitAt = t + hitDelay }
-	c.nextActionAt = t + anim.recover
+	c.nextActionAt = t + recover
 
-	playAnim(c, attack.anim, predicted)
+	-- moves with a cooldown: a whiff only costs the whiff cooldown
+	if attack.cooldown and attack.readyField then
+		task.delay(recover + 0.05, function()
+			if not a.contact then
+				refundWhiff(c, attack.readyField, a.started, attack.cooldown)
+			end
+		end)
+	end
+
+	playAnim(c, attack.anim, predicted, nil, speed)
 	attackStarted:Fire(c, kind, c.attack.hitAt)
 
 	-- Stay up with the target while air comboing; a slam drops you with them.
@@ -412,6 +538,18 @@ local function startAttack(c, kind, predicted)
 		hover(c, Config.AirAttackHover)
 	elseif attack.slam then
 		stopHover(c)
+	end
+
+	if clientDriven then
+		-- The attacker's client lunges, finds the hit and reports it; here we
+		-- only end the strike on time.
+		task.delay(recover, function()
+			if c.token == token then
+				c.attack = nil
+				setState(c, "Idle")
+			end
+		end)
+		return speed
 	end
 
 	if attack.lunge and not attack.lungeAtHit then
@@ -428,26 +566,76 @@ local function startAttack(c, kind, predicted)
 
 		local target = findTarget(c, attack)
 		if target then
+			a.contact = true
 			resolveHit(c, target, attack, kind)
 		end
 		if c.token ~= token then
 			return
 		end
 
-		task.delay(anim.recover - hitDelay, function()
+		task.delay(recover - hitDelay, function()
 			if c.token == token then
 				c.attack = nil
 				setState(c, "Idle")
 			end
 		end)
 	end)
+	return speed
 end
 
 ------------------------------------------------------------------------
 -- Actions. Each returns (accepted, animationName).
 
 local function canStartAction(c, t)
-	return c.state == "Idle" and t >= c.nextActionAt and t > c.parryUntil
+	if t <= c.parryUntil then
+		return false
+	end
+	if c.state == "Idle" then
+		return t >= c.nextActionAt
+	end
+	-- chaining: the next strike may come in a hair before this one's recovery
+	-- ends here, so jitter on the way to the server never drops a combo input
+	return c.state == "Attacking" and c.attack ~= nil and t >= c.nextActionAt - Config.ChainTolerance
+end
+
+-- A player's client reporting that its current strike hit `targetModel`
+-- (for Head Drive, that its hand closed on them, from `startCF`).
+function CombatService.claimHit(c, attackId, targetModel, startCF)
+	local a = c.attack
+	if not a or not a.clientDriven or a.id ~= attackId or a.resolved then
+		-- if this was a grab the client is already playing, tell it to stop
+		Remotes.Grab:FireClient(c.player, "deny", attackId)
+		return false
+	end
+	local target = combatants[targetModel]
+	if a.kind == "HeadDrive" then
+		a.resolved = true
+		local H = Config.HeadDrive
+		if not target or target == c or not isAlive(target) or not isAlive(c)
+			or now() < a.hitAt - Config.HitClaim.EarlyTolerance
+			or not Hitbox.plausible(c.root, target.root, H, Config.HitClaim.RangeSlack) then
+			Remotes.Grab:FireClient(c.player, "deny", attackId)
+			return false
+		end
+		return CombatService.resolveGrab(c, target, startCF, attackId)
+	end
+	local attack = Config.attackFor(a.kind, c.model)
+	if not attack or not target or target == c or not isAlive(target) or not isAlive(c) then
+		return false
+	end
+	if now() < a.hitAt - Config.HitClaim.EarlyTolerance then
+		return false
+	end
+	if not Hitbox.plausible(c.root, target.root, attack, Config.HitClaim.RangeSlack) then
+		return false
+	end
+	a.resolved = true
+	-- connected (a dodge through i-frames still counts as a whiff)
+	if now() >= target.iframesUntil then
+		a.contact = true
+	end
+	resolveHit(c, target, attack, a.kind, attackId, true)
+	return true
 end
 
 -- After your hit frame you can cancel the rest of the swing into a block,
@@ -461,9 +649,9 @@ local function cancelRecovery(c, t)
 	c.nextActionAt = t
 end
 
-function CombatService.m1(c, options, predicted)
+function CombatService.m1(c, options, predicted, attackId)
 	local t = now()
-	if not canStartAction(c, t) then
+	if t < c.m1ReadyAt or not canStartAction(c, t) then
 		return false
 	end
 
@@ -472,7 +660,14 @@ function CombatService.m1(c, options, predicted)
 	end
 
 	local airborne = options.airborne or c.humanoid.FloorMaterial == Enum.Material.Air
-	local speed = flat(c.root.AssemblyLinearVelocity).Magnitude
+	-- an uptilt comes out of the jump's first instant (the client cancels the
+	-- hop), so a launcher press counts as the ground
+	if options.launcher and not options.airborne then
+		airborne = false
+	end
+	if not airborne then
+		c.slamLocked = false
+	end
 
 	local kind
 	if airborne then
@@ -480,14 +675,20 @@ function CombatService.m1(c, options, predicted)
 		if juggleTargetOf(c, t) and c.combo + 1 < Config.ComboLength then
 			kind = Config.AirChain[c.combo % #Config.AirChain + 1]
 		else
+			-- one downslam per airtime
+			if c.slamLocked or t < c.downslamReadyAt - Config.ChainTolerance then
+				return false
+			end
 			kind = "Downslam"
+			c.slamLocked = true
+			c.downslamReadyAt = t + Config.DownslamCooldown
 		end
+	elseif c.combo + 1 >= Config.ComboLength then
+		-- the fifth hit is always the finisher, even with Space held, so an
+		-- uptilt can't extend a full string into an air combo
+		kind = "Finisher"
 	elseif options.launcher then
 		kind = "Uppercut"
-	elseif c.sprinting and speed > Config.WalkSpeed + 2 then
-		kind = "RunningAttack"
-	elseif c.combo + 1 >= Config.ComboLength then
-		kind = "Finisher"
 	else
 		kind = Config.M1Chain[c.combo % #Config.M1Chain + 1]
 	end
@@ -501,26 +702,65 @@ function CombatService.m1(c, options, predicted)
 	c.model:SetAttribute("Combo", c.combo)
 	c.model:SetAttribute("ComboExpires", workspace:GetServerTimeNow() + Config.ComboResetTime)
 
-	startAttack(c, kind, predicted)
-	return true, Config.Attacks[kind].anim
+	local speed = startAttack(c, kind, predicted, attackId)
+	if kind == "Finisher" then
+		c.m1ReadyAt = c.nextActionAt + Config.M1ChainEndlag
+	end
+	return true, Config.Attacks[kind].anim, speed
 end
 
-function CombatService.critical(c, predicted)
+-- M1 then Space a beat later: the ground strike that just started becomes
+-- an uptilt (before its hit frame). Takes the same slot in the combo.
+function CombatService.launch(c, predicted, attackId)
+	local t = now()
+	local a = c.attack
+	if c.state ~= "Attacking" or not a or a.resolved or t >= a.hitAt then
+		return false
+	end
+	local def = a.def
+	if not def.isM1 or def.air or a.kind == "Finisher" or a.kind == "Uppercut" then
+		return false
+	end
+	if t - a.started > Config.LauncherBuffer / a.speed + Config.ChainTolerance then
+		return false
+	end
+	local speed = startAttack(c, "Uppercut", predicted, attackId, a.speed)
+	return true, "Uppercut", speed
+end
+
+function CombatService.critical(c, predicted, attackId)
 	local t = now()
 	if not canStartAction(c, t) or t < c.critReadyAt then
 		return false
 	end
-	c.critReadyAt = t + Config.Attacks.Critical.cooldown
+	setCooldown(c, "critReadyAt", t + Config.Attacks.Critical.cooldown)
 	c.sprinting = false
-	startAttack(c, "Critical", predicted)
+	startAttack(c, "Critical", predicted, attackId)
 	return true, "Critical"
+end
+
+-- H: Low Sweep. Everyone, unless Config lists `owners`.
+function CombatService.canLowSweep(c)
+	local owners = Config.Attacks.LowSweep.owners
+	return c.player ~= nil and (owners == nil or owners[c.player.UserId] == true)
+end
+
+function CombatService.lowSweep(c, predicted, attackId)
+	local t = now()
+	if not CombatService.canLowSweep(c) or not canStartAction(c, t) or t < c.sweepReadyAt then
+		return false
+	end
+	setCooldown(c, "sweepReadyAt", t + Config.Attacks.LowSweep.cooldown)
+	c.sprinting = false
+	startAttack(c, "LowSweep", predicted, attackId)
+	return true, "LowSweep"
 end
 
 function CombatService.feint(c, predicted)
 	local t = now()
 
 	if c.state == "Attacking" and c.attack then
-		if not c.attack.def.feintable or t < c.feintReadyAt or t > c.attack.hitAt - Config.FeintLockout then
+		if not c.attack.def.feintable or t < c.feintReadyAt or t > c.attack.hitAt - Config.FeintLockout / c.attack.speed then
 			return false
 		end
 		c.feintReadyAt = t + Config.FeintCooldown
@@ -534,7 +774,7 @@ function CombatService.feint(c, predicted)
 	end
 
 	if c.state == "Rolling" and t - c.rollStarted <= Config.RollCancelWindow then
-		c.iframesUntil = 0
+		setIFrames(c, 0)
 		c.rollReadyAt = t + Config.RollCancelCooldown
 		setState(c, "Idle")
 		stopMotion(c)
@@ -545,16 +785,35 @@ function CombatService.feint(c, predicted)
 	return false
 end
 
-function CombatService.blockDown(c, resume, predicted)
+function CombatService.blockDown(c, resume, predicted, parryOnly)
 	local t = now()
-	if t < c.blockReadyAt then
+	if t < c.blockReadyAt or c.stunParryHeld or (parryOnly and c.state ~= "Stunned") then
 		return false
 	end
+	-- A fresh press during ordinary hitstun can only try a timed parry.
+	-- Keep the stun and its recovery timer; a held guard never opens here.
+	if c.state == "Stunned" then
+		if resume or c.knockedDown or t < c.parryReadyAt then
+			return false
+		end
+		c.parryUntil = t + Config.ParryWindow
+		c.parryReadyAt = c.parryUntil + Config.ParryWhiffCooldown
+		c.stunParry = true
+		c.stunParryHeld = true
+		c.model:SetAttribute("StunParry", true)
+		local untilTime = c.parryUntil
+		task.delay(Config.ParryWindow, function()
+			if c.stunParry and c.parryUntil == untilTime then
+				clearStunParry(c)
+			end
+		end)
+		return true
+	end
 	if c.state == "Rolling" then
-		c.iframesUntil = 0
+		setIFrames(c, 0)
 	elseif inRecovery(c, t) then
 		cancelRecovery(c, t)
-	elseif c.state ~= "Idle" and c.state ~= "Parried" then
+	elseif c.state ~= "Idle" and c.state ~= "Parried" and c.state ~= "GetUp" then
 		return false
 	end
 
@@ -565,21 +824,27 @@ function CombatService.blockDown(c, resume, predicted)
 
 	-- Pressing F opens the parry window; keeping it held is a normal block.
 	-- Both use the same block pose, so a parry is purely about timing.
+	-- (a successful parry clears parryReadyAt, so the next press is live at once)
 	if not resume and t >= c.parryReadyAt then
 		c.parryUntil = t + Config.ParryWindow
-		c.parryReadyAt = t + Config.ParryCooldown
+		c.parryReadyAt = t + Config.ParryWindow + Config.ParryWhiffCooldown
 	end
 
 	c.sprinting = false
 	c.blockStart = t
+	-- guarding (or parrying) ends your own string: no block-cancel loops
+	c.combo = 0
+	c.model:SetAttribute("Combo", 0)
 	setState(c, "Blocking")
 	playAnim(c, "Block", predicted)
 	return true, "Block"
 end
 
 function CombatService.blockUp(c, predicted)
+	c.stunParryHeld = false -- releasing F permits a new press, without cancelling its timed parry
 	if c.state == "Blocking" then
 		c.blockReadyAt = now() + Config.BlockCooldown
+		c.nextActionAt = math.max(c.nextActionAt, now() + Config.BlockAttackDelay - Config.ChainTolerance)
 		setState(c, "Idle")
 		stopAnim(c, "Block", predicted)
 	end
@@ -609,7 +874,7 @@ function CombatService.roll(c, direction, predicted, airborne)
 	end
 	if inRecovery(c, t) then
 		cancelRecovery(c, t)
-	elseif c.state ~= "Idle" and c.state ~= "Blocking" then
+	elseif c.state ~= "Idle" and c.state ~= "Blocking" and c.state ~= "GetUp" then
 		return false
 	end
 
@@ -627,7 +892,7 @@ function CombatService.roll(c, direction, predicted, airborne)
 	local anim = CombatService.dashAnim(c.root, dir, airborne)
 
 	c.rollReadyAt = t + Config.RollCooldown
-	c.iframesUntil = t + Config.RollIFrames
+	setIFrames(c, t + Config.RollIFrames)
 	c.rollStarted = t
 	c.sprinting = false
 	if c.state == "Blocking" then
@@ -639,9 +904,12 @@ function CombatService.roll(c, direction, predicted, airborne)
 	end
 	setState(c, "Rolling", Config.RollDuration)
 	playAnim(c, anim, predicted)
-	dash(c, dir * (airborne and Config.AirDashSpeed or Config.RollSpeed), Config.RollDuration * 0.9)
-	if airborne then
-		hover(c, Config.RollDuration * 0.9)
+	-- a player's own client already started the dash when the key went down
+	if not (c.player and predicted) then
+		dash(c, dir * (airborne and Config.AirDashSpeed or Config.RollSpeed), Config.RollDuration * 0.9)
+		if airborne then
+			hover(c, Config.RollDuration * 0.9)
+		end
 	end
 	effect("Dash", c.root.Position, c, nil, dir)
 	return true, anim
@@ -660,6 +928,48 @@ function CombatService.doubleJump(c, predicted)
 	return true, "DoubleJump"
 end
 
+-- E toggles the fists. Players start unequipped (relaxed idle); dummies are
+-- always equipped. Attacking or blocking equips automatically (silently: the
+-- strike's own animation covers it). Unequipping only from Idle.
+function CombatService.setEquipped(c, on, predicted, silent)
+	on = on == true
+	if c.equipped == on then
+		return true
+	end
+	if not on and c.state ~= "Idle" then
+		return false
+	end
+	c.equipped = on
+	c.model:SetAttribute("Equipped", on)
+	if silent then
+		return true
+	end
+	local anim = on and "EquipIn" or "EquipOut"
+	playAnim(c, anim, predicted)
+	return true, anim
+end
+
+-- E with a katana: draw it / put it away (players only). Sheathed, you fight
+-- with your fists. Only from Idle.
+function CombatService.setKatana(c, on, predicted)
+	on = on == true
+	if c.katanaDrawn == on then
+		return true
+	end
+	if c.state ~= "Idle" or c.model:GetAttribute("Weapon") ~= "Katana" then
+		return false
+	end
+	c.katanaDrawn = on
+	c.model:SetAttribute("KatanaDrawn", on)
+	if on and not c.equipped then
+		c.equipped = true
+		c.model:SetAttribute("Equipped", true)
+	end
+	local anim = on and "Katana_EquipIn" or "Katana_EquipOut"
+	playAnim(c, anim, predicted)
+	return true, anim
+end
+
 function CombatService.setSprint(c, on)
 	c.sprinting = on == true and c.state == "Idle"
 	applyMovement(c)
@@ -667,110 +977,254 @@ function CombatService.setSprint(c, on)
 end
 
 ------------------------------------------------------------------------
--- Slash skill
+-- Head Drive (Y): grab, head slam, drag, two head slams. See HeadDrive for the
+-- timeline. A player attacker's own client drives their body (they steer
+-- the drag); the server pins the victim (anchored) and places it relative
+-- to wherever the attacker is. Every client does the same placement
+-- locally, so the two bodies stay locked together on every screen.
+-- Dummies have no client, so a dummy attacker runs the straight path here.
 
-local function capture(victim, caster)
-	local S = Config.Skill
-	local t = now()
-	victim.attack = nil
-	victim.combo = 0
-	victim.sprinting = false
-	releaseJuggle(victim)
-	stopMotion(victim)
-	setState(victim, "Captured")
-	victim.captureId += 1
-	local id = victim.captureId
-	victim.model:SetAttribute("Dismantled", true)
-	playAnim(victim, "Captured")
-	effect("CleaveHit", victim.root.Position + Vector3.new(0, 0.5, 0), caster, victim)
+local HD = HeadDrive.T
 
-	task.spawn(function()
-		local perTick = victim.humanoid.MaxHealth * S.damagePerSecond * S.tickInterval
-		local elapsed = 0
-		while elapsed < S.captureTime do
-			task.wait(S.tickInterval)
-			elapsed += S.tickInterval
-			if victim.captureId ~= id or not isAlive(victim) or victim.state ~= "Captured" then
-				break
-			end
-			damage(victim, perTick)
-		end
-		if victim.captureId ~= id then
-			return
-		end
-		victim.model:SetAttribute("Dismantled", false)
-		stopAnim(victim, "Captured")
-		if isAlive(victim) then
-			victim.invincibleUntil = now() + S.kneelTime
-			setState(victim, "Kneeling", S.kneelTime)
-			playAnim(victim, "Kneel")
-		end
-	end)
-	return t
+local function pin(c, on)
+	c.root.Anchored = on
+	if not on then
+		c.root.AssemblyLinearVelocity = Vector3.zero
+		c.root.AssemblyAngularVelocity = Vector3.zero
+		pcall(function()
+			-- back to its owner's physics (the server's, for dummies)
+			c.root:SetNetworkOwner(c.player)
+		end)
+	end
 end
 
-function CombatService.skill(c, predicted)
-	local S = Config.Skill
+local function grabExclude()
+	local list = {}
+	for model in pairs(combatants) do
+		table.insert(list, model)
+	end
+	local fx = workspace:FindFirstChild("CombatFX")
+	if fx then
+		table.insert(list, fx)
+	end
+	return list
+end
+
+local function denyGrab(c, attackId)
+	if c.player and attackId then
+		Remotes.Grab:FireClient(c.player, "deny", attackId)
+	end
+	return false
+end
+
+-- `upright`: an interrupted grab stands the victim up where they are.
+local function releaseTarget(g, upright)
+	if g.targetFreed then
+		return
+	end
+	g.targetFreed = true
+	local d = g.defender
+	if upright then
+		local p = d.root.Position
+		d.root.CFrame = CFrame.lookAlong(Vector3.new(p.X, g.base.Position.Y, p.Z), -flat(g.base.LookVector))
+	end
+	pin(d, false)
+	d.grab = nil
+	if isAlive(d) and d.state == "Grabbed" then
+		-- can block or dash out straight away, but not attack for a beat
+		setState(d, "GetUp", Config.HeadDrive.getUpTime)
+	end
+end
+
+local function releaseAttacker(g)
+	if g.attackerFreed then
+		return
+	end
+	g.attackerFreed = true
+	local a = g.attacker
+	if g.serverDriven then
+		pin(a, false)
+	end
+	a.grab = nil
+	if isAlive(a) and a.state == "Grabbing" then
+		a.nextActionAt = now()
+		setState(a, "Idle")
+	end
+end
+
+cancelGrab = function(g)
+	if g.done then
+		return
+	end
+	g.done = true
+	grabs[g.attacker] = nil
+	releaseTarget(g, true)
+	releaseAttacker(g)
+	Remotes.Grab:FireAllClients("stop", g.attacker.model)
+end
+
+local function startGrab(attacker, defender, startCF, attackId)
+	local base, D = HeadDrive.plan(startCF, grabExclude())
+	attacker.attack = nil
+	defender.attack = nil
+	defender.combo = 0
+	defender.sprinting = false
+	releaseJuggle(defender)
+	for _, c in ipairs({ attacker, defender }) do
+		stopMotion(c)
+		stopHover(c)
+	end
+	setState(attacker, "Grabbing")
+	setState(defender, "Grabbed")
+
+	local startRel = base:ToObjectSpace(defender.root.CFrame)
+	local serverDriven = attacker.player == nil
+	if serverDriven then
+		pin(attacker, true)
+	end
+	pin(defender, true)
+	local g = {
+		attacker = attacker,
+		defender = defender,
+		base = base,
+		D = D,
+		startRel = startRel,
+		started = now(),
+		id = attackId,
+		nextDamage = 1,
+		serverDriven = serverDriven,
+	}
+	grabs[attacker] = g
+	attacker.grab = g
+	defender.grab = g
+	Remotes.Grab:FireAllClients("start", attacker.model, defender.model, startRel, attackId)
+end
+
+-- The hand closed on `defender`. Returns whether the grab took.
+function CombatService.resolveGrab(attacker, defender, startCF, attackId)
 	local t = now()
-	if not canStartAction(c, t) or t < c.skillReadyAt then
+	if not isAlive(defender) or not isAlive(attacker) or defender.grab or attacker.grab then
+		return denyGrab(attacker, attackId)
+	end
+	-- dash i-frames slip it
+	if t < defender.iframesUntil then
+		effect("Dodge", defender.root.Position, attacker, defender, "HeadDrive", attackId)
+		return denyGrab(attacker, attackId)
+	end
+	-- the hand reached them (blocked or not): not a whiff
+	if attacker.attack and attacker.attack.kind == "HeadDrive" then
+		attacker.attack.contact = true
+	end
+	-- a held guard stops it. There's no parry check at all: a grab can't be
+	-- parried, only blocked.
+	if defender.state == "Blocking" and isFacing(defender, attacker) then
+		local contact = defender.root.Position:Lerp(attacker.root.Position, 0.4) + Vector3.new(0, 0.6, 0)
+		defender.lastPostureGain = t
+		setPosture(defender, math.min(defender.maxPosture - 1, defender.posture + Config.HeadDrive.blockPosture))
+		effect("Block", contact, attacker, defender, "HeadDrive", attackId)
+		playAnim(defender, "BlockImpact")
+		push(defender, flat(attacker.root.CFrame.LookVector) * 3, 0.1)
+		return denyGrab(attacker, attackId)
+	end
+	-- the client's view of where it grabbed from, if it's believable
+	if typeof(startCF) ~= "CFrame" or (startCF.Position - attacker.root.Position).Magnitude > 6 then
+		startCF = attacker.root.CFrame
+	end
+	startGrab(attacker, defender, startCF, attackId)
+	return true
+end
+
+function CombatService.headDrive(c, predicted, attackId)
+	local H = Config.HeadDrive
+	local t = now()
+	if not canStartAction(c, t) or t < c.grabReadyAt then
 		return false
 	end
-	c.skillReadyAt = t + S.cooldown
+	setCooldown(c, "grabReadyAt", t + H.cooldown)
 	c.sprinting = false
 
+	local clientDriven = c.player ~= nil and predicted and attackId ~= nil
 	local token = setState(c, "Attacking")
-	c.attack = { kind = "Skill", def = { feintable = false }, started = t, hitAt = t + S.release }
-	c.nextActionAt = t + S.castTime
-	playAnim(c, "SkillCast", predicted)
-
-	task.delay(S.release, function()
-		if c.token ~= token or not isAlive(c) then
-			return
-		end
-		local direction = flat(c.root.CFrame.LookVector).Unit
-		local origin = c.root.Position + direction * 1.5
-		effect("CleaveThrow", origin, c)
-
-		-- the slash travels; the first fighter it passes through is caught
-		local start = now()
-		local travelled = 0
-		while travelled < S.range do
-			local step = math.min(S.range, S.speed * (now() - start))
-			local segment = math.max(step - travelled, 1)
-			local centre = origin + direction * (travelled + segment / 2)
-			local candidates = {}
-			for model, other in pairs(combatants) do
-				if other ~= c and isAlive(other) then
-					table.insert(candidates, model)
-				end
-			end
-			overlap.FilterDescendantsInstances = candidates
-			local box = CFrame.lookAlong(centre, direction)
-			local parts = workspace:GetPartBoundsInBox(box, Vector3.new(S.width, 6, segment + 1), overlap)
-			for _, part in ipairs(parts) do
-				local victim = combatants[part.Parent]
-				if victim and victim ~= c and isAlive(victim) then
-					local tt = now()
-					if tt < victim.iframesUntil then
-						effect("Dodge", victim.root.Position, c, victim)
-					elseif tt >= victim.invincibleUntil and victim.state ~= "Captured" then
-						capture(victim, c)
-						return
-					end
-				end
-			end
-			travelled = step
-			task.wait()
+	local a = { kind = "HeadDrive", def = { feintable = false }, started = t, hitAt = t + HD.GRAB_AT, id = attackId, clientDriven = clientDriven }
+	c.attack = a
+	-- a grab that reached nobody only costs the whiff cooldown
+	task.delay(H.whiffRecover + 0.05, function()
+		if not a.contact then
+			refundWhiff(c, "grabReadyAt", a.started, H.cooldown)
 		end
 	end)
+	c.nextActionAt = t + H.whiffRecover
+	playAnim(c, "HeadDriveReach", predicted)
 
-	task.delay(S.castTime, function()
+	if not clientDriven then
+		task.delay(HD.GRAB_AT, function()
+			if c.token ~= token or not isAlive(c) then
+				return
+			end
+			local target = findTarget(c, H)
+			if target then
+				CombatService.resolveGrab(c, target, c.root.CFrame, nil)
+			end
+		end)
+	end
+	-- a miss (or a blocked grab) recovers here; a grab that takes changes
+	-- state, which cancels this
+	task.delay(H.whiffRecover, function()
 		if c.token == token then
 			c.attack = nil
 			setState(c, "Idle")
 		end
 	end)
-	return true, "SkillCast"
+	return true, "HeadDriveReach"
+end
+
+local function stepGrab(g)
+	local t = now() - g.started
+	local a, d = g.attacker, g.defender
+	if not a.model.Parent or not d.model.Parent or not isAlive(a) or not isAlive(d) then
+		cancelGrab(g)
+		return
+	end
+	-- where the attacker is: the dummy path, or wherever the player steered
+	local attackerCF
+	if g.freeCF then
+		attackerCF = g.freeCF -- after they're free, the victim finishes in place
+	elseif g.serverDriven then
+		attackerCF = g.base * (HeadDrive.sample(math.min(t, HD.LENGTH), g.D, g.startRel))
+		a.root.CFrame = attackerCF
+	else
+		attackerCF = a.root.CFrame
+	end
+	if t >= HD.ATTACKER_FREE and not g.freeCF then
+		g.freeCF = attackerCF
+	end
+	if not g.targetFreed then
+		d.root.CFrame = attackerCF * HeadDrive.relative(math.min(t, HD.LENGTH), g.startRel)
+	end
+
+	while g.nextDamage <= #HeadDrive.DAMAGE and t >= HeadDrive.DAMAGE[g.nextDamage].t do
+		local hit = HeadDrive.DAMAGE[g.nextDamage]
+		g.nextDamage += 1
+		if damage(d, Config.damageFor(a.model, d.humanoid.MaxHealth * hit.frac)) then
+			cancelGrab(g)
+			return
+		end
+	end
+
+	if t >= HD.ATTACKER_FREE then
+		-- the attacker is free a beat before the victim; they can't be hit
+		-- in that gap or just after getting up, so the grab doesn't extend
+		if not g.iframed then
+			g.iframed = true
+			setIFrames(d, now() + math.max(0, HD.LENGTH - t) + Config.HeadDrive.getUpTime + Config.HeadDrive.releaseIFrames)
+		end
+		releaseAttacker(g)
+	end
+	if t >= HD.LENGTH then
+		g.done = true
+		grabs[a] = nil
+		releaseTarget(g, false)
+	end
 end
 
 ------------------------------------------------------------------------
@@ -810,12 +1264,19 @@ function CombatService.register(model, player)
 
 		combo = 0,
 		lastM1 = 0,
+		m1ReadyAt = 0,
 		nextActionAt = 0,
 		critReadyAt = 0,
+		sweepReadyAt = 0,
 		feintReadyAt = 0,
 
 		parryUntil = 0,
 		parryReadyAt = 0,
+		parryM1Token = 0,
+		parryM1Consumed = 0,
+		stunParry = false,
+		stunParryHeld = false,
+		stunAnim = nil,
 		blockStart = 0,
 		blockReadyAt = 0,
 
@@ -823,14 +1284,15 @@ function CombatService.register(model, player)
 		juggleUntil = 0,
 		juggleStart = 0,
 
-		skillReadyAt = 0,
-		captureId = 0,
-		invincibleUntil = 0,
+		grabReadyAt = 0,
+		grab = nil, -- the Head Drive this fighter is in, either side of it
 
 		rollReadyAt = 0,
 		rollStarted = 0,
 		iframesUntil = 0,
 		doubleJumpReadyAt = 0,
+		slamLocked = false, -- used a downslam this airtime
+		downslamReadyAt = 0,
 
 		posture = 0,
 		maxPosture = Config.MaxPosture,
@@ -838,11 +1300,16 @@ function CombatService.register(model, player)
 		lastDamaged = 0,
 
 		sprinting = false,
+		equipped = player == nil,
 	}
 
 	combatants[model] = c
 	setState(c, "Idle")
 	setPosture(c, 0)
+	model:SetAttribute("Equipped", c.equipped)
+	model:SetAttribute("ParryM1Token", 0)
+	model:SetAttribute("ParryM1Consumed", 0)
+	model:SetAttribute("StunParry", false)
 	CollectionService:AddTag(model, "Combatant")
 
 	local function unregister()
@@ -862,10 +1329,21 @@ function CombatService.register(model, player)
 end
 
 RunService.Heartbeat:Connect(function(dt)
+	for _, g in pairs(grabs) do
+		if not g.done then
+			stepGrab(g)
+		end
+	end
+
 	local t = now()
 	for _, c in pairs(combatants) do
 		if c.juggledBy and t >= c.juggleUntil then
 			releaseJuggle(c)
+		end
+		-- back on the ground: downslam is available again (a raycast, since
+		-- FloorMaterial isn't reliable here for player-owned bodies)
+		if c.slamLocked and c.root.Position.Y - groundBelow(c).Y < 3.4 then
+			c.slamLocked = false
 		end
 		if c.posture > 0 and c.state ~= "Blocking" and not c.sprinting and t - c.lastPostureGain > Config.PostureRegenDelay then
 			setPosture(c, c.posture - Config.PostureRegenRate * dt)

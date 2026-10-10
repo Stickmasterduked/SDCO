@@ -2,13 +2,26 @@
 -- character's physics is owned: the client for players, the server for NPCs.
 
 local RunService = game:GetService("RunService")
+local Config = require(script.Parent.Config)
 
-local FLAT = Vector3.new(1, 0, 1)
 local DASH_STEER_RATE = 9
 local DASH_MIN_SPEED = 14
-local ORBIT_MIN_RADIUS = 7
-
+local ORBIT_MIN_RADIUS = 4 -- only pushes you out if you start almost inside them
+local ORBIT_SIDEWAYS = 0.65 -- how sideways (relative to them) a dash must be to strafe around them
+local ORBIT_MAX_ANGLE = math.rad(100) -- the most one strafe can carry you around someone
+--
 local Motion = {}
+--boi.
+-- horizontal part of a world vector (positions/velocities can have height)
+local function flat(v)
+	return Vector3.new(v.X, 0, v.Z)
+end
+
+-- 90 degrees around the vertical axis. Same as v:Cross(Vector3.yAxis) for a
+-- flat v, and horizontal by construction, so it never needs flattening again.
+local function perp(v)
+	return Vector3.new(-v.Z, 0, v.X)
+end
 
 local function getAttachment(root)
 	local attachment = root:FindFirstChild("CombatAttachment")
@@ -65,28 +78,67 @@ function Motion.push(root, velocity, duration)
 	end
 end
 
--- A burst that starts fast and eases out. While it runs, the movement keys
--- steer it, so a dash can curve around someone instead of locking you into
--- a straight line. With `orbit` (a target's root part) a sideways dash
--- circles the target at roughly its starting distance instead.
+-- Knockback loses speed across the whole stun, easing gently to a stop.
+-- Keep this separate from lunges, small hit pushes and dash steering.
+function Motion.knockback(root, velocity, duration)
+	Motion.push(root, velocity, 0) -- clear the previous push and apply vertical launch
+	local horizontal = Vector2.new(velocity.X, velocity.Z)
+	if horizontal.Magnitude < 0.01 or duration <= 0 then
+		return
+	end
+
+	local push = makePush(root, horizontal)
+	local started = os.clock()
+	local connection
+	connection = RunService.Heartbeat:Connect(function()
+		if not push.Parent then
+			connection:Disconnect()
+			return
+		end
+		local alpha = math.clamp((os.clock() - started) / duration, 0, 1)
+		push.PlaneVelocity = horizontal * (1 - alpha) ^ 2
+		if alpha >= 1 then
+			connection:Disconnect()
+			push:Destroy()
+		end
+	end)
+end
+
+-- A burst that starts fast and eases out. A straight dash can be steered a
+-- little with the movement keys. With `orbit` (a target's root part), a
+-- sideways dash becomes a strafe arc around them instead: same distance and
+-- timing as a straight dash, held at your starting distance from them, and
+-- never more than ORBIT_MAX_ANGLE around however close you are. The camera
+-- is turned in CombatClient, together with your facing.
 function Motion.dash(root, velocity, duration, orbit)
 	Motion.stop(root)
 
-	local speed = (velocity * FLAT).Magnitude
+	local speed = flat(velocity).Magnitude
 	if speed < 0.01 or duration <= 0 then
 		return
 	end
-	local direction = (velocity * FLAT).Unit
+	local direction = flat(velocity).Unit
 	local humanoid = root.Parent and root.Parent:FindFirstChildOfClass("Humanoid")
 	local push = makePush(root, Vector2.new(direction.X, direction.Z) * speed)
 
-	local orbitSign, orbitRadius
+	local function speedAt(alpha)
+		return math.max(DASH_MIN_SPEED, speed * (1 - alpha) ^ 1.6)
+	end
+
+	-- decide once, at the start, whether this is a strafe around someone
+	local orbitSign, orbitRadius, orbitScale
 	if orbit then
-		local offset = (orbit.Position - root.Position) * FLAT
-		if offset.Magnitude > 0.5 and math.abs(direction:Dot(offset.Unit)) < 0.65 then
-			local tangent = offset.Unit:Cross(Vector3.yAxis)
-			orbitSign = direction:Dot(tangent) >= 0 and 1 or -1
+		local offset = flat(orbit.Position - root.Position)
+		if offset.Magnitude > Config.DashOrbitMinRange and math.abs(direction:Dot(offset.Unit)) < ORBIT_SIDEWAYS then
+			orbitSign = direction:Dot(perp(offset.Unit)) >= 0 and 1 or -1
 			orbitRadius = math.max(offset.Magnitude, ORBIT_MIN_RADIUS)
+			-- how far a straight dash would go, then fit that to an arc
+			local distance = 0
+			for i = 0, 19 do
+				distance += speedAt((i + 0.5) / 20) * duration / 20
+			end
+			local arc = math.min(distance / orbitRadius, ORBIT_MAX_ANGLE)
+			orbitScale = arc * orbitRadius / distance -- <= 1: close up, you slow down instead of looping
 		end
 	end
 
@@ -102,15 +154,22 @@ function Motion.dash(root, velocity, duration, orbit)
 			return
 		end
 
-		local offset = orbitSign and orbit.Parent and (orbit.Position - root.Position) * FLAT
-		if offset and offset.Magnitude > 0.5 then
-			-- tangent around the target, nudged back toward the orbit radius
+		-- Keep the same speed easing when orbit assist drops out.
+		local current = speedAt(alpha) * (orbitScale or 1)
+		local offset = orbitSign and orbit.Parent and flat(orbit.Position - root.Position)
+		if orbitSign and (not offset or offset.Magnitude <= Config.DashOrbitMinRange) then
+			orbitSign = nil -- stay a straight dash for the rest of this burst
+			offset = nil
+		end
+		if offset then
+			-- along the circle, with a gentle pull back onto the starting radius
 			local radial = offset.Unit
-			local tangent = radial:Cross(Vector3.yAxis) * orbitSign
-			local correction = math.clamp((offset.Magnitude - orbitRadius) * 0.8, -0.6, 0.6)
+			local tangent = perp(radial) * orbitSign
+			local correction = math.clamp((offset.Magnitude - orbitRadius) * 1.2, -0.6, 0.6)
 			direction = (tangent + radial * correction).Unit
-		elseif humanoid then
-			local move = humanoid.MoveDirection * FLAT
+		elseif not orbitSign and humanoid then
+			-- straight dash: the movement keys can bend it a little
+			local move = flat(humanoid.MoveDirection)
 			if move.Magnitude > 0.1 then
 				local blended = direction:Lerp(move.Unit, math.min(1, dt * DASH_STEER_RATE))
 				if blended.Magnitude > 0.05 then
@@ -118,8 +177,6 @@ function Motion.dash(root, velocity, duration, orbit)
 				end
 			end
 		end
-
-		local current = math.max(DASH_MIN_SPEED, speed * (1 - alpha) ^ 1.6)
 		push.PlaneVelocity = Vector2.new(direction.X, direction.Z) * current
 	end)
 end
@@ -177,6 +234,8 @@ end
 function Motion.apply(root, kind, velocity, duration, delay, orbit)
 	if kind == "push" then
 		Motion.push(root, velocity, duration)
+	elseif kind == "knockback" then
+		Motion.knockback(root, velocity, duration)
 	elseif kind == "dash" then
 		Motion.dash(root, velocity, duration, orbit)
 	elseif kind == "stop" then

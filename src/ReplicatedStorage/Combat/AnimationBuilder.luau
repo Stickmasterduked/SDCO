@@ -21,6 +21,8 @@ local JOINTS = {
 	LeftArm = { part = "Left Arm", rotation = LEFT_ROTATION },
 	RightLeg = { part = "Right Leg", rotation = RIGHT_ROTATION },
 	LeftLeg = { part = "Left Leg", rotation = LEFT_ROTATION },
+	-- katana grip motor (Right Arm -> KatanaHandle): pitch/yaw/roll of the wrist
+	Katana = { part = "KatanaHandle", rotation = CFrame.identity },
 }
 
 local LIMBS = { "Head", "RightArm", "LeftArm", "RightLeg", "LeftLeg" }
