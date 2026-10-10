@@ -1,6 +1,7 @@
 -- Katana skills update: aggressive Z (bent dash through the target, slash
 -- flurry, finisher blast) and X (grounded cross slash, two crescents that
 -- carry and explode); all-sprite VFX, heavy shake. Needs the skills installed.
+-- Sprite ids already in your Config.KatanaTextures are kept.
 -- Paste this whole file into Studio's command bar (View > Command Bar) and
 -- press Enter. It updates the combat scripts this feature touches, adds the
 -- KatanaFX and KatanaSkillAnimations modules, and is a single undo step
@@ -12678,6 +12679,27 @@ local clientHome = existingClient and existingClient.Parent
 	or StarterPlayer:FindFirstChildOfClass("StarterPlayerScripts")
 	or StarterPlayer:WaitForChild("StarterPlayerScripts")
 local HOMES = { combat = combat, server = serverHome, client = clientHome }
+
+-- Keep the sprite ids already pasted into this place's Config.KatanaTextures
+-- (the new Config ships with empty slots).
+do
+	local current = combat:FindFirstChild('Config')
+	local old = current and current:IsA('ModuleScript') and current.Source or ''
+	local block = old:match('Config%.KatanaTextures%s*=%s*(%b{})')
+	if block and SOURCES.Config then
+		local kept = 0
+		for name, id in block:gmatch('([%w_]+)%s*=%s*"(rbxassetid://%d+)"') do
+			local before = SOURCES.Config
+			SOURCES.Config = SOURCES.Config:gsub('(Config%.KatanaTextures%s*=%s*%b{})', function(newBlock)
+				return (newBlock:gsub('(%f[%w_]' .. name .. '%s*=%s*)"[^"]*"', '%1"' .. id .. '"'))
+			end)
+			if SOURCES.Config ~= before then
+				kept += 1
+			end
+		end
+		table.insert(log, 'kept ' .. kept .. ' sprite ids from your Config.KatanaTextures')
+	end
+end
 
 local made = {}
 for _, entry in ipairs(SCRIPTS) do
