@@ -30,9 +30,10 @@ FPS = 60
 SKIN_ALPHA = {"core": 1.0, "flow": 0.85, "soft": 0.55}
 
 RUSH_TARGET = 21.0
-RUSH_STOP = 5.2
-RUSH_DURATION = 0.3
-HITSTOP = 0.16
+RUSH_PASS = 6.0
+RUSH_DURATION = 0.28
+RUSH_BEND = 3.5
+HITSTOP = 0.2
 CRESCENT_TARGET = 34.0
 
 
@@ -169,6 +170,98 @@ def bright(b):
     return 0.35 + 0.22 * (b or 1)
 
 
+def seq(v, u):
+    if isinstance(v, list):
+        return ev(v, u)
+    return v
+
+
+def rand_unit(rng):
+    while True:
+        v = np.array([rng.uniform(-1, 1), rng.uniform(-1, 1), rng.uniform(-1, 1)])
+        n = np.linalg.norm(v)
+        if 0.05 < n <= 1:
+            return v / n
+
+
+def cone(rng, d, spread):
+    d = cf.unit(d)
+    if spread >= 179:
+        return rand_unit(rng)
+    a = rng.uniform(0, 2 * math.pi)
+    b = math.radians(rng.uniform(0, spread))
+    side = cf.unit(np.cross(d, [0.3, 1, 0.2]) if abs(d[1]) < 0.9 else np.cross(d, [1, 0, 0]))
+    side2 = np.cross(d, side)
+    return cf.unit(d * math.cos(b) + (side * math.cos(a) + side2 * math.sin(a)) * math.sin(b))
+
+
+def rng_range(rng, v, default=0.0):
+    if isinstance(v, (list, tuple)):
+        return rng.uniform(v[0], v[-1])
+    return v if v is not None else default
+
+
+class Particles:
+    """ParticleEmitter stand-in: bursts and pouring emitters."""
+
+    def __init__(self):
+        self.items = []
+        self.rng = random.Random(5)
+
+    def emit(self, look, position, direction, count, real):
+        rng = self.rng
+        for _ in range(count):
+            speed = rng_range(rng, look.get("speed"), 0)
+            pos = np.array(position, float)
+            if look.get("radius"):
+                r = look["radius"]
+                unit = rand_unit(rng)
+                if look.get("inward"):
+                    pos = pos + unit * r
+                    vel = -unit * speed
+                else:
+                    pos = pos + unit * (r if look.get("surface") else r * rng.random() ** (1 / 3))
+                    vel = unit * speed
+            else:
+                vel = cone(rng, direction, look.get("spread", 0)) * speed
+            self.items.append({"look": look, "p": pos, "v": vel, "born": real, "life": rng_range(rng, look.get("life"), 0.5),
+                               "rot": rng_range(rng, look.get("rotation"), 0), "spin": rng_range(rng, look.get("spin"), 0)})
+
+    def draw(self, fr, real, dt):
+        keep = []
+        for it in self.items:
+            age = real - it["born"]
+            if age >= it["life"]:
+                continue
+            keep.append(it)
+            look = it["look"]
+            u = age / it["life"]
+            drag = look.get("drag", 0)
+            it["v"] = it["v"] * math.exp(-drag * dt) + np.array(look.get("accel", [0, 0, 0]), float) * dt
+            it["p"] = it["p"] + it["v"] * dt
+            name = look["sprite"]
+            img = flip_cell(name, u) if look.get("flip") else sprite_img(name)
+            if img is None:
+                continue
+            size = seq(look.get("size", 1), u)
+            trans = seq(look.get("transparency", 0), u)
+            col = seq(look.get("color", (255, 255, 255)), u)
+            col = c01(col)
+            inten = (1 - trans) * bright(look.get("brightness", 1)) * (0.45 + 0.55 * look.get("emission", 1))
+            rot = it["rot"] + it["spin"] * age
+            squash = 1.0
+            orient = look.get("orientation", "camera")
+            if orient == "velocity" and np.linalg.norm(it["v"]) > 0.01:
+                rot = screen_angle(fr.cam, it["p"], it["v"]) + 90
+                squash = 2.2
+            elif orient == "flat":
+                to = cf.unit(fr.cam.eye - it["p"])
+                squash = max(0.08, abs(to[1]))
+                rot = 0
+            draw_sprite(fr, img, it["p"], size, col, inten, rot, squash)
+        self.items = keep
+
+
 class Scene:
     """One playback of a move: bodies, live layers, camera cues."""
 
@@ -185,6 +278,7 @@ class Scene:
         self.ghosts = []
         self.tip_hist = []
         self.flash = 0.0
+        self.cam_now = None
         self.shake = 0.0
         self.punch = np.zeros(3)
         self.punch_v = np.zeros(3)
@@ -196,14 +290,20 @@ class Scene:
         self.cast_index = 0
         self.cast = sorted(self.spec["cast"], key=lambda l: l["at"])
         self.projectile = None
+        self.projectiles = []
         self.start_delay = 0.25
+        self.particles = Particles()
+        self.pour = {}
+        self.flurries = []
+        self.released = set()
 
     # -- bodies ---------------------------------------------------------------
     def root(self, t):
         if self.move == "Katana_Rush":
             start = self.clip["markers"]["Dash"]
-            dist = max(4.0, RUSH_TARGET - RUSH_STOP)
-            return cf.new(0, 3, -dist * motionprofile.fraction((t - start) / RUSH_DURATION))
+            dist = RUSH_TARGET + RUSH_PASS
+            share = motionprofile.fraction((t - start) / RUSH_DURATION)
+            return cf.new(RUSH_BEND * math.sin(math.pi * share), 3, -dist * share)
         return cf.new(0, 3, 0)
 
     def pose(self, t):
@@ -234,6 +334,23 @@ class Scene:
         f = frames.get(layer.get("frame", "root"), frames.get("root"))
         kind = layer["type"]
         item = {"layer": layer, "frame": f, "start": real, "role": role, "frames": frames}
+        if kind == "burst":
+            off = layer.get("offset", [0, 0, 0])
+            pos = cf.point(f, off)
+            d = np.array([0, 1, 0.0]) if layer.get("worldUp") else cf.vec(f, layer.get("dir", [0, 1, 0]))
+            if layer.get("alignX"):
+                layer = dict(layer, rotation=[screen_angle(self.cam_now, pos, cf.right(f)) + (layer["rotation"][0] if isinstance(layer.get("rotation"), list) else 0)] * 2) if self.cam_now else layer
+            self.particles.emit(layer, pos, d, layer.get("count", 1), real)
+            return
+        if kind == "flurry":
+            rng = random.Random(9)
+            t0 = real
+            for i in range(layer["count"]):
+                at = t0 + i * layer["every"] * rng.uniform(0.7, 1.3)
+                jit = np.array([rng.uniform(-1, 1), rng.uniform(-0.6, 1), rng.uniform(-1, 1)]) * layer["spread"]
+                size = rng.uniform(*layer["size"])
+                self.flurries.append((at, cf.point(f, jit), size, rng.uniform(0, 360), layer))
+            return
         if kind == "camera":
             cue = layer.get(role) if role in layer else None
             if role == "attacker" and "attacker" in layer:
@@ -489,92 +606,77 @@ class Scene:
             return True
         return False
 
-    # -- the projectile ---------------------------------------------------------
-    def draw_projectile(self, fr, real, eye):
-        p = self.projectile
+    # -- the projectiles ------------------------------------------------------
+    RELEASES = [("Hit", 0.0), ("Hit2", -48.0)]
+
+    def proj_frame(self, p):
+        o = p["origin"] + p["dir"] * p["travelled"]
+        d = p["dir"]
+        up = cf.vec(cf.axis_angle(d, math.radians(p["tilt"])), [0, 1, 0])
+        return cf.from_matrix(o, up, d, np.cross(up, d))
+
+    def proj_frames(self, p):
+        P = self.spec["projectile"]
+        base = self.proj_frame(p)
+        centre = base @ cf.new(P["chord"] / 2, 0, 0)
+        floor = cf.pos(base) * [1, 0, 1]
+        d = p["dir"]
+        ground = cf.from_matrix(floor, d, [0, 1, 0], np.cross(d, [0, 1, 0]))
+        return {"proj": centre, "ground": ground, "root": centre}
+
+    def detonate(self, p, layers, real):
+        p["state"], p["done_at"] = "done", real
+        frames = self.proj_frames(p)
+        for layer in layers:
+            self.layers.append((real + layer["at"], layer, frames))
+
+    def draw_projectile(self, fr, p, real, eye, dt):
         P = self.spec["projectile"]
         age = real - p["start"]
-        if not p["stopped"]:
-            p["travelled"] = min(P["speed"] * age, P["range"])
-            if p["travelled"] >= P["range"]:
-                p["stopped"], p["stopped_at"] = "range", real
-                self.play_dissolve(real)
-            elif self.hit is None and p["travelled"] + ev(P["sagitta"], age) >= np.linalg.norm(cf.pos(self.target_root) * [1, 0, 1]) - 3 - 0.5:
-                self.on_projectile_hit(real)
+        tdist = np.linalg.norm(cf.pos(self.target_root) * [1, 0, 1])
+        if p["state"] != "done":
+            speed = P["speed"] * (1 if p["state"] == "flying" else P["carry"]["speed"])
+            p["travelled"] = min(p["travelled"] + speed * dt, P["range"])
+            sag = ev(P["sagitta"], age)
+            if p["state"] == "flying" and p["travelled"] + sag >= tdist - 3 - 0.5 and p["travelled"] < tdist + 3:
+                p["state"], p["carry_until"] = "carry", real + P["carry"]["time"]
+                self.hit = real
+                strong = p["tilt"] != 0
+                self.target_vel = cf.unit(p["dir"]) * (60 if strong else 14) + np.array([0, 28 if strong else 4, 0])
+            elif p["state"] == "carry" and real >= p["carry_until"]:
+                self.detonate(p, self.spec["impact"], real)
+            elif p["state"] == "flying" and p["travelled"] >= P["range"]:
+                self.detonate(p, self.spec["dissolve"], real)
         fade = 1.0
-        if p["stopped"]:
-            fade = 1 - (real - p["stopped_at"]) / P["fade"]
+        if p["state"] == "done":
+            fade = 1 - (real - p["done_at"]) / P["fade"]
             if fade <= 0:
-                self.projectile = None
-                return
+                return False
         grow = ev(P["grow"], age)
         chord = P["chord"] * grow
         sag = ev(P["sagitta"], age) * grow
-        base = self.proj_frame()
-        centre = base @ cf.new(chord / 2, 0, 0)
+        centre = self.proj_frame(p) @ cf.new(chord / 2, 0, 0)
         frame = billboard(centre, P["billboard"], eye)
         pulse = 1 + P["pulse"][0] * math.sin(age * P["pulse"][1])
         width = P["width"] * grow * pulse
         count = P["segments"] + 1
         pos, nrm, ss = shape_points({"shape": "chord", "chord": chord, "sagitta": sag}, 0, 0, 1, count)
-
-        def draw(skin, inset, shift, scale, amul):
-            pts, ws, als = [], [], []
-            for q, n, s in zip(pos, nrm, ss):
-                w = width * profile(s, P["taper"]) * scale
-                pts.append(cf.point(frame, q * scale - n * inset * w + np.array([0, shift, 0])))
-                ws.append(w * skin["w"])
-                als.append(amul * fade)
-            self.draw_chain(fr, pts, ws, als, skin)
-
-        for k in range(P["wake"]["count"], 0, -1):
-            a = 1 - k / (P["wake"]["count"] + 1)
-            draw({"w": 0.9 * a, "color": P["wake"]["color"], "alpha": P["wake"]["alpha"], "tex": "soft", "brightness": 1.2}, 0.3, -P["wake"]["spacing"] * k, 1 - P["wake"]["shrink"] * k, a * a)
         for skin in reversed(P["skins"]):
-            draw(skin, skin.get("inset", 0), 0, 1, 1)
-        for fringe in P["fringes"]:
-            draw({"w": fringe["w"], "color": fringe["color"], "alpha": fringe["alpha"], "tex": "core", "brightness": 2}, 0, fringe["offset"], 1, 1)
-        # groove
-        now_floor = cf.pos(base) * [1, 0, 1] + [0, 0.12, 0]
-        if not p["stopped"]:
-            p["hist"].append((real, now_floor))
-        p["hist"] = [h for h in p["hist"] if real - h[0] < P["groove"]["life"]]
-        if len(p["hist"]) >= 2:
-            pts = [h[1] for h in p["hist"]]
-            us = [(real - h[0]) / P["groove"]["life"] for h in p["hist"]]
-            self.draw_chain(fr, pts, [P["groove"]["width"] * (1 - u) * fade for u in us], [(1 - u) * fade for u in us], {"w": 1, "color": P["groove"]["color"], "alpha": 0.6, "tex": "soft", "brightness": 1.5})
-            self.draw_chain(fr, pts, [P["groove"]["width"] * (1 - u) * fade for u in us], [(1 - u) * fade for u in us], {"w": 0.3, "color": (255, 255, 255), "alpha": 0.8, "tex": "core", "brightness": 2})
+            pts, ws, als = [], [], []
+            for q, n, sv in zip(pos, nrm, ss):
+                w = width * profile(sv, P["taper"])
+                pts.append(cf.point(frame, q - n * skin.get("inset", 0) * w))
+                ws.append(w * skin["w"])
+                als.append(fade)
+            self.draw_chain(fr, pts, ws, als, skin)
+        if p["state"] != "done":
+            for i, look in enumerate(P.get("emitters", [])):
+                acc = p["pour"].get(i, 0) + look["rate"] * dt
+                n = int(acc)
+                p["pour"][i] = acc - n
+                self.particles.emit(look, cf.pos(centre), [0, 1, 0], n, real)
         fr.glow(cf.pos(centre) * [1, 0, 1] + [0, 0.05, 0], 7, c01(P["light"]["color"]), 0.08 * fade)
-
-    def proj_frame(self):
-        p = self.projectile
-        o = p["origin"] + p["dir"] * p["travelled"]
-        d = p["dir"]
-        return cf.from_matrix(o, [0, 1, 0], d, np.cross([0, 1, 0], d))
-
-    def proj_frames(self):
-        P = self.spec["projectile"]
-        base = self.proj_frame()
-        centre = base @ cf.new(P["chord"] / 2, 0, 0)
-        floor = cf.pos(base) * [1, 0, 1]
-        d = self.projectile["dir"]
-        ground = cf.from_matrix(floor, d, [0, 1, 0], np.cross(d, [0, 1, 0]))
-        return {"proj": centre, "ground": ground, "root": centre}
-
-    def on_projectile_hit(self, real):
-        p = self.projectile
-        p["stopped"], p["stopped_at"] = "hit", real
-        self.hit = real
-        frames = self.proj_frames()
-        for layer in self.spec["impact"]:
-            self.layers.append((real + layer["at"], layer, frames))
-        self.hitstop_until = -1  # the attacker isn't frozen by a projectile hit
-        self.target_vel = cf.unit(self.projectile["dir"]) * 55 + np.array([0, 18, 0])
-
-    def play_dissolve(self, real):
-        frames = self.proj_frames()
-        for layer in self.spec["dissolve"]:
-            self.layers.append((real + layer["at"], layer, frames))
+        return True
 
     # -- main step ---------------------------------------------------------------
     def step(self, real, dt):
@@ -603,7 +705,7 @@ class Scene:
         if t >= hit_at and not getattr(self, "marked", False):
             self.marked = True
             if self.move == "Katana_Rush":
-                contact = cf.pos(self.target_root) + np.array([0, 0.6, 0])
+                contact = cf.pos(self.target_root) + np.array([0, 0.5, 0])
                 contact = contact + (cf.pos(self.root(t)) - contact) * 0.4 * np.array([1, 0, 1])
                 blade_dir = cf.unit(tip - base)
                 cut = frame_xy(contact, self.sweep, blade_dir)
@@ -615,13 +717,16 @@ class Scene:
                     self.layers.append((real + layer["at"], layer, fr))
                 self.hit = real
                 self.hitstop_until = real + HITSTOP
-                self.target_vel = -cf.look(self.target_root) * 0 + cf.look(self.root(t)) * 46 + np.array([0, 10, 0])
+                self.target_vel = cf.look(self.root(t)) * 70 + np.array([0, 30, 0])
                 self.shake = min(1, self.shake + 0.0)
-            else:
-                root = self.root(t)
-                d = cf.unit(cf.look(root) * [1, 0, 1])
-                origin = cf.pos(root) * [1, 0, 1] + d * 3 + [0, self.spec["projectile"]["height"], 0]
-                self.projectile = {"origin": origin, "dir": d, "start": real, "travelled": 0, "stopped": False, "hist": []}
+        if self.move == "Katana_Crescent":
+            for marker, tilt in self.RELEASES:
+                if marker not in self.released and t >= self.clip["markers"].get(marker, 99):
+                    self.released.add(marker)
+                    root = self.root(t)
+                    d = cf.unit(cf.look(root) * [1, 0, 1])
+                    origin = cf.pos(root) * [1, 0, 1] + d * 3 + [0, self.spec["projectile"]["height"], 0]
+                    self.projectiles.append({"origin": origin, "dir": d, "start": real, "travelled": 0, "state": "flying", "tilt": tilt, "pour": {}})
         # timed impact layers
         rest = []
         for at, layer, fr in self.layers:
@@ -666,6 +771,7 @@ class Scene:
     def render(self, real, cam_fn, labels=True):
         t = self.t
         cam = cam_fn(self)
+        self.cam_now = cam
         # shake
         s = self.shake ** 2
         jitter = np.array([math.sin(real * 61) , math.sin(real * 47 + 1), 0]) * 0.35 * s + self.punch * 0.12
@@ -712,10 +818,40 @@ class Scene:
             us = [(real - h[0]) / wake["history"] for h in self.wake_hist][::-1]
             for skin in wake["skins"]:
                 self.draw_chain(fr, pts, [wake["width"] * skin["w"] * (1 - u) ** 1.2 for u in us], [1 - u for u in us], skin)
+        # pouring emitters (session)
+        dt = 1 / FPS / SLOW[0]
+        for i, look in enumerate(self.spec.get("emitters", [])):
+            if look["from"] <= t <= look["to"]:
+                acc = self.pour.get(i, 0) + look["rate"] * dt
+                n = int(acc)
+                self.pour[i] = acc - n
+                root = self.root(t)
+                if look.get("attach") == "tip":
+                    b0, b1 = self.blade(t)
+                    pos, d = b0 + (b1 - b0) * 0.6, np.array([0, 1, 0.0])
+                else:
+                    pos = cf.point(root, look.get("offset", [0, 0, 0]))
+                    d = cf.vec(root, look.get("dir", [0, 1, 0]))
+                self.particles.emit(look, pos, d, n, real)
+        # flurry slashes
+        rest = []
+        for at, pos, size, ang, layer in self.flurries:
+            if real >= at:
+                self.particles.emit({"sprite": layer["sprite"], "flip": "4x4", "life": layer["life"], "size": [[0, size * 0.85], [1, size * 1.2]],
+                                     "transparency": [[0, 0], [0.7, 0.1], [1, 1]], "rotation": [ang, ang], "brightness": layer.get("brightness", 3)}, pos, [0, 1, 0], 1, real)
+                self.particles.emit({"sprite": "core", "life": 0.1, "size": [[0, size * 0.18], [0.3, size * 0.32], [1, size * 0.1]],
+                                     "transparency": [[0, 0.1], [1, 1]], "brightness": 4}, pos, [0, 1, 0], 1, real)
+                self.particles.emit({"sprite": "spark", "life": [0.2, 0.45], "speed": [30, 70], "spread": 180, "drag": 6, "orientation": "velocity",
+                                     "size": [[0, 0.35], [1, 0]], "transparency": [[0, 0], [1, 1]], "color": [[0, (255, 255, 255)], [1, layer.get("tint", (200, 176, 255))]],
+                                     "brightness": 3}, pos, [0, 1, 0], layer.get("sparks", 6), real)
+                self.shake = min(1, self.shake + layer.get("shake", 0.18))
+            else:
+                rest.append((at, pos, size, ang, layer))
+        self.flurries = rest
         # live layers
         self.live = [item for item in self.live if self.draw_item(fr, item, real, eye)]
-        if self.projectile:
-            self.draw_projectile(fr, real, eye)
+        self.particles.draw(fr, real, dt)
+        self.projectiles = [p for p in self.projectiles if self.draw_projectile(fr, p, real, eye, dt)]
         fr.screen_flash(self.flash ** 2 * 0.55, (0.93, 0.9, 1.0))
         if labels:
             mark = [m for m, mt in self.clip["markers"].items() if abs(mt - t) < 0.009]
@@ -749,14 +885,37 @@ def screen_angle(cam, p, d):
     return math.degrees(math.atan2(b[1] - a[1], b[0] - a[0]))
 
 
-def draw_sprite(fr, img, p, size, color, intensity, rotation):
+CELLS = {}
+
+
+def flip_cell(name, u):
+    img = sprite_img(name)
+    if img is None:
+        return None
+    i = min(15, int(u * 16))
+    key = (name, i)
+    if key not in CELLS:
+        w = img.width // 4
+        r, c = divmod(i, 4)
+        CELLS[key] = img.crop((c * w, r * w, (c + 1) * w, (r + 1) * w))
+    return CELLS[key]
+
+
+def draw_sprite(fr, img, p, size, color, intensity, rotation, squash=1.0):
     q = fr.cam.project(p)
     if q is None or intensity <= 0.002:
         return
     px = int(max(2, size * fr.cam.scale_at(p)))
     if px > 2000:
         px = 2000
-    im = img.resize((px, px), Image.BILINEAR).rotate(-rotation, resample=Image.BILINEAR, expand=False)
+    py = int(max(1, px * squash))
+    im = img.resize((px, py), Image.BILINEAR)
+    if py != px:
+        canvas = Image.new("RGBA", (max(px, py), max(px, py)), (0, 0, 0, 0))
+        canvas.paste(im, ((canvas.width - px) // 2, (canvas.height - py) // 2))
+        im = canvas
+        px = canvas.width
+    im = im.rotate(-rotation, resample=Image.BILINEAR, expand=False)
     arr = np.asarray(im, np.float32) / 255
     contrib = arr[..., :3] * arr[..., 3:4] * np.array(color, np.float32) * intensity
     x0, y0 = int(q[0] - px / 2), int(q[1] - px / 2)
@@ -783,11 +942,12 @@ def game_cam(scene):
 
 def side_cam(scene):
     if scene.move == "Katana_Rush":
-        return render.Camera((24, 6, -11), (0, 3.5, -11), fov=62, size=SIZE)
+        return render.Camera((27, 7, -16), (0, 3.5, -16), fov=62, size=SIZE)
     return render.Camera((30, 9, -18), (0, 6, -16), fov=62, size=SIZE)
 
 
 SIZE = (640, 360)
+SLOW = [1.0]
 
 
 def run(move, cam_fn, slow=1.0, duration=None, every=1):
@@ -798,6 +958,7 @@ def run(move, cam_fn, slow=1.0, duration=None, every=1):
     length = scene.clip["length"] + scene.start_delay + (0.6 if move == "Katana_Rush" else 1.2)
     duration = duration or length
     frames = []
+    SLOW[0] = slow
     dt = 1 / FPS / slow
     real = 0.0
     i = 0

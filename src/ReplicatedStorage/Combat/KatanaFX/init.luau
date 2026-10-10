@@ -66,6 +66,13 @@ local function textureFor(name)
 		spark = T.sparkStreak or T.spark,
 		glint = T.spark,
 		dust = T.dust or T.smoke,
+		-- flipbooks fall back to the existing 4x4 flipbooks
+		explosion = T.impact or T.hitImpact,
+		smoke = T.smoke or T.dust,
+		slash = T.hitImpact or T.impact,
+		shock = T.shockwave or T.ring,
+		spike = T.spark,
+		energy = T.softGlow or T.glow,
 		-- no stand-in: skipped until uploaded
 		crescent = nil,
 		-- beam skins: a plain (solid) beam until the ribbons are uploaded
@@ -714,6 +721,124 @@ local function dustLayer(layer, frame)
 	Debris:AddItem(attachment, 1.2)
 end
 
+------------------------------------------------------------------------
+-- Particle bursts: the real VFX (flipbook explosions, smoke, slash flashes,
+-- flat ground shockwaves, sparks). Every look in the score is one of these.
+
+local ORIENTATION = {
+	camera = Enum.ParticleOrientation.FacingCamera,
+	upright = Enum.ParticleOrientation.FacingCameraWorldUp,
+	velocity = Enum.ParticleOrientation.VelocityParallel,
+	flat = Enum.ParticleOrientation.VelocityPerpendicular,
+}
+
+local function range2(v, default)
+	if type(v) == "table" then
+		return NumberRange.new(v[1], v[2] or v[1])
+	end
+	return NumberRange.new(v or default or 0)
+end
+
+-- Builds a ParticleEmitter from a layer's look (not emitting yet).
+local function makeEmitter(layer, texture)
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Texture = texture
+	emitter.Rate = layer.rate or 0
+	emitter.Lifetime = range2(layer.life, 0.5)
+	emitter.Speed = range2(layer.speed, 0)
+	emitter.SpreadAngle = Vector2.new(layer.spread or 0, layer.spread or 0)
+	emitter.Drag = layer.drag or 0
+	local acc = layer.accel
+	emitter.Acceleration = acc and Vector3.new(acc[1], acc[2], acc[3]) or Vector3.zero
+	emitter.EmissionDirection = Enum.NormalId.Top
+	emitter.Orientation = ORIENTATION[layer.orientation or "camera"]
+	emitter.Rotation = range2(layer.rotation, 0)
+	emitter.RotSpeed = range2(layer.spin, 0)
+	emitter.Size = numberSequence(layer.size)
+	emitter.Transparency = numberSequence(layer.transparency or 0)
+	emitter.Color = colorSequence(layer.color or { 255, 255, 255 })
+	emitter.LightEmission = layer.emission or 1
+	emitter.LightInfluence = 0
+	emitter.ZOffset = layer.zoffset or 0
+	emitter.LockedToPart = layer.locked == true
+	if layer.squash then
+		emitter.Squash = numberSequence(layer.squash)
+	end
+	if layer.flip then
+		pcall(function()
+			emitter.FlipbookLayout = layer.flip == "2x2" and Enum.ParticleFlipbookLayout.Grid2x2 or Enum.ParticleFlipbookLayout.Grid4x4
+			emitter.FlipbookMode = Enum.ParticleFlipbookMode.OneShot
+		end)
+	end
+	setBrightness(emitter, layer.brightness or 1)
+	return emitter
+end
+
+-- Where a burst comes from: an attachment aimed along `dir` (emitters shoot
+-- along their Top), or a ball of `radius` for volume / inward bursts.
+local function emitterHolder(layer, frame)
+	local offset = layer.offset and Vector3.new(layer.offset[1], layer.offset[2], layer.offset[3]) or Vector3.zero
+	local position = frame:PointToWorldSpace(offset)
+	local dir = layer.dir and frame:VectorToWorldSpace(Vector3.new(layer.dir[1], layer.dir[2], layer.dir[3])) or Vector3.yAxis
+	if layer.worldUp then
+		dir = Vector3.yAxis
+	end
+	dir = dir.Magnitude > 1e-4 and dir.Unit or Vector3.yAxis
+	local right = math.abs(dir.Y) < 0.95 and dir:Cross(Vector3.yAxis).Unit or dir:Cross(Vector3.xAxis).Unit
+	local cframe = CFrame.fromMatrix(position, right, dir)
+	if layer.radius then
+		local part = Instance.new("Part")
+		part.Name = "KatanaFXBurst"
+		part.Anchored = true
+		part.CanCollide = false
+		part.CanQuery = false
+		part.CanTouch = false
+		part.Transparency = 1
+		part.Size = Vector3.one * layer.radius * 2
+		part.CFrame = cframe
+		part.Parent = folder()
+		return part, function(emitter)
+			pcall(function()
+				emitter.Shape = Enum.ParticleEmitterShape.Sphere
+				emitter.ShapeStyle = layer.surface and Enum.ParticleEmitterShapeStyle.Surface or Enum.ParticleEmitterShapeStyle.Volume
+				emitter.ShapeInOut = layer.inward and Enum.ParticleEmitterShapeInOut.Inward or Enum.ParticleEmitterShapeInOut.Outward
+			end)
+		end
+	end
+	local attachment = attachmentAt(position)
+	attachment.CFrame = cframe
+	return attachment, nil
+end
+
+local function burstLayer(layer, frame)
+	local texture = textureFor(layer.sprite)
+	if not texture or texture == "" then
+		return
+	end
+	local holder, shape = emitterHolder(layer, frame)
+	local emitter = makeEmitter(layer, texture)
+	if shape then
+		shape(emitter)
+	end
+	if layer.alignX and frame then
+		local r = layer.rotation or 0
+		local base = type(r) == "table" and r[1] or r
+		local a = math.deg(0)
+		local camera = Workspace.CurrentCamera
+		if camera then
+			local p0 = camera:WorldToViewportPoint(frame.Position)
+			local p1 = camera:WorldToViewportPoint(frame.Position + frame.XVector)
+			a = math.deg(math.atan2(p1.Y - p0.Y, p1.X - p0.X))
+		end
+		local spread = type(r) == "table" and (r[2] - r[1]) or 0
+		emitter.Rotation = NumberRange.new(base + a, base + a + spread)
+	end
+	emitter.Parent = holder
+	emitter:Emit(layer.count or 1)
+	local life = type(layer.life) == "table" and (layer.life[2] or layer.life[1]) or layer.life or 1
+	Debris:AddItem(holder, life + 0.3)
+end
+
 local function lightLayer(layer, resolveFrame)
 	local frame = resolveFrame()
 	if not frame then
@@ -758,6 +883,47 @@ local function playSound(name, position, volume, pitch)
 	Debris:AddItem(attachment, 5)
 end
 KatanaFX.sound = playSound
+
+-- A flurry: slash flashes tearing across the target one after another,
+-- each with a spark spit, a hit sound, a flinch and a camera tick.
+local PoseAnimatorModule
+local function flurryLayer(layer, frame, attacker, defender)
+	local rng = Random.new()
+	for i = 1, layer.count do
+		task.delay((i - 1) * layer.every * rng:NextNumber(0.7, 1.3), function()
+			local jitter = Vector3.new(rng:NextNumber(-1, 1), rng:NextNumber(-0.6, 1), rng:NextNumber(-1, 1)) * layer.spread
+			local at = frame * CFrame.new(jitter)
+			local size = rng:NextNumber(layer.size[1], layer.size[2])
+			local angle = rng:NextNumber(0, 360)
+			burstLayer({
+				sprite = layer.sprite, flip = "4x4", count = 1, life = layer.life,
+				size = { { 0, size * 0.85 }, { 1, size * 1.2 } }, transparency = { { 0, 0 }, { 0.7, 0.1 }, { 1, 1 } },
+				color = layer.color or { 255, 255, 255 }, rotation = angle, brightness = layer.brightness or 3, zoffset = 2,
+			}, at)
+			burstLayer({
+				sprite = "core", count = 1, life = 0.1, size = { { 0, size * 0.18 }, { 0.3, size * 0.32 }, { 1, size * 0.1 } },
+				transparency = { { 0, 0.1 }, { 1, 1 } }, color = { 255, 255, 255 }, brightness = 4, zoffset = 2,
+			}, at)
+			burstLayer({
+				sprite = "spark", count = layer.sparks or 6, life = { 0.2, 0.45 }, speed = { 30, 70 }, spread = 180,
+				drag = 6, orientation = "velocity", size = { { 0, 0.35 }, { 1, 0 } }, transparency = { { 0, 0 }, { 1, 1 } },
+				color = { { 0, { 255, 255, 255 } }, { 1, layer.tint or { 200, 176, 255 } } }, brightness = 3, squash = -1.2,
+			}, at)
+			playSound(layer.sound or "KatanaSwing", at.Position, 0.55, rng:NextNumber(1.1, 1.5))
+			if defender and typeof(defender) == "Instance" and defender.Parent then
+				PoseAnimatorModule = PoseAnimatorModule or require(Combat.PoseAnimator)
+				pcall(PoseAnimatorModule.kick, defender, "Torso", Vector3.new(rng:NextNumber(-500, 500), rng:NextNumber(-400, 400), rng:NextNumber(-400, 400)))
+				pcall(PoseAnimatorModule.kick, defender, "Head", Vector3.new(rng:NextNumber(-500, 500), rng:NextNumber(-500, 500), 0))
+			end
+			local character = localPlayer and localPlayer.Character
+			if character and (character == attacker or character == defender) then
+				CameraFX.shake(layer.shake or 0.18)
+				CameraFX.punch(at.XVector * (rng:NextNumber() < 0.5 and -1 or 1), 0.25)
+			end
+		end)
+	end
+end
+
 
 ------------------------------------------------------------------------
 -- Rays, wisps, risers, converging energy
@@ -1214,6 +1380,10 @@ spawnLayer = function(layer, ctx)
 		lightLayer(layer, fixed)
 	elseif kind == "risers" then
 		risersLayer(layer, frame)
+	elseif kind == "burst" then
+		burstLayer(layer, frame)
+	elseif kind == "flurry" then
+		flurryLayer(layer, frame, ctx.attacker, ctx.defender)
 	elseif kind == "sound" then
 		local at = frame and frame.Position or (ctx.attackerRoot and ctx.attackerRoot.Position)
 		if at then
@@ -1240,30 +1410,22 @@ local function flight()
 	return (S and S.speed) or P.speed, (S and S.range) or P.range
 end
 
-local function newProjectile(model, origin, direction, spec)
+local function newProjectile(model, origin, direction, spec, tilt)
 	local P = spec
 	local self = {
 		model = model,
 		origin = origin,
 		direction = direction,
+		tilt = math.rad(tilt or 0),
 		start = os.clock(),
 		travelled = 0,
-		stopped = false,
+		state = "flying", -- flying -> hold / carry -> done
 		chains = {},
-		history = {},
 	}
 	local count = P.segments + 1
 	for i, skin in ipairs(P.skins) do
 		self.chains["skin" .. i] = newChain(count, skin)
 	end
-	for i, fringe in ipairs(P.fringes) do
-		self.chains["fringe" .. i] = newChain(count, { w = 1, color = fringe.color, alpha = fringe.alpha, tex = "core", brightness = 2 })
-	end
-	for k = 1, P.wake.count do
-		self.chains["wake" .. k] = newChain(count, { w = 1, color = P.wake.color, alpha = P.wake.alpha, tex = "soft", brightness = 1.2 })
-	end
-	self.groove = newChain(10, { w = 1, color = P.groove.color, alpha = 0.6, tex = "soft", brightness = 1.5 })
-	self.grooveCore = newChain(10, { w = 0.3, color = { 255, 255, 255 }, alpha = 0.8, tex = "core", brightness = 2 })
 	self.lightAttachment = attachmentAt(origin)
 	local light = Instance.new("PointLight")
 	light.Color = rgb(P.light.color)
@@ -1271,24 +1433,35 @@ local function newProjectile(model, origin, direction, spec)
 	light.Range = P.light.range
 	light.Shadows = false
 	light.Parent = self.lightAttachment
-	self.nextSpark = 0
-	self.nextTrail = os.clock() + (P.trail and P.trail.every or 0)
+	-- smoke, embers and sparks pouring off it as it flies
+	self.emitters = {}
+	for _, look in ipairs(P.emitters or {}) do
+		local texture = textureFor(look.sprite)
+		if texture and texture ~= "" then
+			local emitter = makeEmitter(look, texture)
+			emitter.Parent = self.lightAttachment
+			table.insert(self.emitters, emitter)
+		end
+	end
 	self.params = groundParams()
 	return self
 end
 
--- frame of the crescent at its current position
+-- the crescent's base frame (chord bottom on the floor), leaning by its tilt
 local function projectileFrame(p)
 	local position = p.origin + p.direction * p.travelled
-	return CFrame.fromMatrix(position, Vector3.yAxis, p.direction, Vector3.yAxis:Cross(p.direction))
+	local up = CFrame.fromAxisAngle(p.direction, p.tilt):VectorToWorldSpace(Vector3.yAxis)
+	return CFrame.fromMatrix(position, up, p.direction, up:Cross(p.direction))
 end
 
 local function destroyProjectile(p)
+	if p.destroyed then
+		return
+	end
+	p.destroyed = true
 	for _, chain in pairs(p.chains) do
 		chain:destroy()
 	end
-	p.groove:destroy()
-	p.grooveCore:destroy()
 	p.lightAttachment:Destroy()
 	local list = projectiles[p.model]
 	if list then
@@ -1311,170 +1484,25 @@ local function drawProjectile(p, fadeAlpha)
 	local pulse = 1 + P.pulse[1] * math.sin(age * P.pulse[2])
 	local width = P.width * grow * pulse
 	local count = P.segments + 1
-	local layer = { shape = "chord", chord = chord, sagitta = sag }
-	local positions, normals, ss = shapePoints(layer, 0, 0, 1, count)
-	local function draw(chain, skinW, inset, shiftY, scale, alphaMul)
-		local pts, ws, as = {}, {}, {}
-		for i = 1, count do
-			local w = width * profile(ss[i], P.taper) * scale
-			local local_ = positions[i] * scale - normals[i] * inset * w + Vector3.new(0, shiftY, 0)
-			pts[i] = frame:PointToWorldSpace(local_)
-			ws[i] = w * skinW
-			as[i] = alphaMul * fadeAlpha
-		end
-		chain:set(pts, ws, as)
-	end
+	local positions, normals, ss = shapePoints({ shape = "chord", chord = chord, sagitta = sag }, 0, 0, 1, count)
 	for i, skin in ipairs(P.skins) do
-		draw(p.chains["skin" .. i], skin.w, skin.inset or 0, 0, 1, 1)
+		local pts, ws, as = {}, {}, {}
+		for k = 1, count do
+			local w = width * profile(ss[k], P.taper)
+			pts[k] = frame:PointToWorldSpace(positions[k] - normals[k] * (skin.inset or 0) * w)
+			ws[k] = w * skin.w
+			as[k] = fadeAlpha
+		end
+		p.chains["skin" .. i]:set(pts, ws, as)
 	end
-	for i, fringe in ipairs(P.fringes) do
-		draw(p.chains["fringe" .. i], fringe.w, 0, fringe.offset, 1, 1)
-	end
-	for k = 1, P.wake.count do
-		local a = 1 - k / (P.wake.count + 1)
-		draw(p.chains["wake" .. k], 0.9 * a, 0.3, -P.wake.spacing * k, 1 - P.wake.shrink * k, a * a)
-	end
-	return base, chord
+	return base
 end
 
-local function updateProjectile(p, dt)
-	local P = Data.Katana_Crescent.projectile
-	local now = os.clock()
-	if p.stopped == "hold" and now - p.stoppedAt > 0.4 then
-		-- the server never confirmed a hit (dodged, or our view was off)
-		p.stopped = "range"
-		p.stoppedAt = now
-		KatanaFX._projectileEnded(p, "range")
-	end
-	if not p.stopped then
-		local speed, range = flight()
-		local step = speed * dt
-		-- walls end it early (combatants are the server's call)
-		local bottom = p.origin + p.direction * p.travelled
-		local probe = Workspace:Raycast(bottom + Vector3.new(0, 3, 0), p.direction * (step + 1), p.params)
-		if probe then
-			p.travelled += math.max(0, (probe.Position - (bottom + Vector3.new(0, 3, 0))).Magnitude - 1)
-			p.stopped = "wall"
-		else
-			p.travelled += step
-			if p.travelled >= range then
-				p.travelled = range
-				p.stopped = "range"
-			end
-		end
-		-- meeting someone: stop on them and wait for the server's hit
-		-- (it plays the impact), instead of flying through and snapping back
-		if not p.stopped then
-			local leading = p.origin + p.direction * (p.travelled + 4.5)
-			for _, model in ipairs(game:GetService("CollectionService"):GetTagged("Combatant")) do
-				local other = model:FindFirstChild("HumanoidRootPart")
-				local humanoid = model:FindFirstChildOfClass("Humanoid")
-				if model ~= p.model and other and humanoid and humanoid.Health > 0 then
-					local offset = other.Position - leading
-					local along = offset:Dot(p.direction)
-					local side = (offset - p.direction * along) * FLAT
-					local until_ = model:GetAttribute("IFramesUntil")
-					local dodging = type(until_) == "number" and Workspace:GetServerTimeNow() < until_
-					if not dodging and along <= 0.5 and along > -step - 6 and side.Magnitude < 3.5 then
-						p.travelled = math.max(0, p.travelled + along)
-						p.stopped = "hold"
-						break
-					end
-				end
-			end
-		end
-		if p.stopped then
-			p.stoppedAt = now
-			if p.stopped ~= "hold" then
-				KatanaFX._projectileEnded(p, p.stopped)
-			end
-		end
-	end
-	local fade = 1
-	if p.stopped and p.stopped ~= "hold" then
-		fade = 1 - (now - p.stoppedAt) / P.fade
-		if fade <= 0 then
-			destroyProjectile(p)
-			return false
-		end
-	end
-	local centre = drawProjectile(p, math.max(fade, 0))
-	local base = projectileFrame(p)
-	-- groove carved along the floor behind it
-	local floor = floorBelow(base.Position + Vector3.new(0, 2, 0), 10)
-	if floor and not p.stopped then
-		table.insert(p.history, { at = now, p = floor + Vector3.new(0, 0.12, 0) })
-	end
-	while #p.history > 0 and now - p.history[1].at > P.groove.life do
-		table.remove(p.history, 1)
-	end
-	local pts, ws, as = {}, {}, {}
-	local n = #p.history
-	for i = 1, 10 do
-		local h = p.history[math.max(1, math.floor(n * i / 10 + 0.5))]
-		if h then
-			local u = (now - h.at) / P.groove.life
-			pts[i] = h.p
-			ws[i] = P.groove.width * (1 - u) * fade
-			as[i] = (1 - u) * fade
-		end
-	end
-	if #pts >= 2 then
-		p.groove:set(pts, ws, as)
-		p.grooveCore:set(pts, ws, as)
-	end
-	p.lightAttachment.Position = centre.Position
-	-- shockwave rings, glints and dust left along the flight path
-	if P.trail and not p.stopped and now >= p.nextTrail then
-		p.nextTrail = now + P.trail.every
-		local ctx = KatanaFX._projectileContext(p, p.model, nil)
-		local start = now
-		playLayers(P.trail.layers, ctx, function()
-			return os.clock() - start
-		end)
-	end
-	-- sparks kicked off the floor where the lower tip drags
-	if floor and not p.stopped and now >= p.nextSpark then
-		p.nextSpark = now + P.sparkEvery
-		sparksLayer({ dir = { 0, 0.6, -1 }, count = 2, spread = 35, speed = { 14, 30 }, life = { 0.2, 0.4 }, size = 0.25, drag = 3, color = { 255, 255, 255 }, tint = { 200, 176, 255 }, sprite = "spark" },
-			CFrame.lookAlong(floor + Vector3.new(0, 0.2, 0), p.direction))
-	end
-	return true
-end
-
-local function launchProjectile(model, origin, direction)
-	local P = Data.Katana_Crescent.projectile
-	local p = newProjectile(model, origin, direction, P)
-	projectiles[model] = projectiles[model] or {}
-	table.insert(projectiles[model], p)
-	local last = os.clock()
-	run(function()
-		local now = os.clock()
-		local dt = math.min(now - last, 0.1)
-		last = now
-		if p.destroyed then
-			return false
-		end
-		local alive = updateProjectile(p, dt)
-		if not alive then
-			p.destroyed = true
-		end
-		return alive
-	end, function()
-		if not p.destroyed then
-			p.destroyed = true
-			destroyProjectile(p)
-		end
-	end)
-	return p
-end
-
--- frames for a projectile frozen where it stopped
+-- frames for a projectile where it is now (impacts, detonations, trails)
 local function projectileContext(p, attacker, defender)
 	local base = projectileFrame(p)
 	local floor = floorBelow(base.Position + Vector3.new(0, 4, 0), 14) or (base.Position - Vector3.new(0, 0.4, 0))
 	local ground = CFrame.fromMatrix(floor, p.direction, Vector3.yAxis, p.direction:Cross(Vector3.yAxis))
-	-- the impact's "proj" frame sits at the crescent's centre height
 	local centre = base * CFrame.new(Data.Katana_Crescent.projectile.chord / 2, 0, 0)
 	return {
 		frames = {
@@ -1492,18 +1520,106 @@ local function projectileContext(p, attacker, defender)
 		defender = defender,
 	}
 end
-
 KatanaFX._projectileContext = projectileContext
 
-function KatanaFX._projectileEnded(p, reason)
-	if reason == "range" or reason == "wall" then
-		local ctx = projectileContext(p, p.model, nil)
-		local start = os.clock()
-		playLayers(Data.Katana_Crescent.dissolve, ctx, function()
-			return os.clock() - start
-		end)
+local function detonate(p, layers, attacker, defender)
+	p.state = "done"
+	p.doneAt = os.clock()
+	for _, emitter in ipairs(p.emitters) do
+		emitter.Enabled = false
 	end
+	local ctx = projectileContext(p, attacker or p.model, defender)
+	local start = os.clock()
+	playLayers(layers, ctx, function()
+		return os.clock() - start
+	end)
 end
+
+local function updateProjectile(p, dt)
+	local P = Data.Katana_Crescent.projectile
+	local now = os.clock()
+	local speed, range = flight()
+	if p.state == "hold" and now - p.since > 0.4 then
+		-- the server never confirmed a hit (dodged, or our view was off)
+		detonate(p, Data.Katana_Crescent.dissolve)
+	elseif p.state == "carry" and now >= p.carryUntil then
+		-- driven through them: now it blows
+		detonate(p, Data.Katana_Crescent.impact, p.hitBy, p.victim)
+	end
+	if p.state ~= "done" then
+		local step = (p.state == "flying" and speed or speed * P.carry.speed) * dt
+		local bottom = p.origin + p.direction * p.travelled
+		-- walls end it (combatants are the server's call)
+		local probe = Workspace:Raycast(bottom + Vector3.new(0, 3, 0), p.direction * (step + 1), p.params)
+		if probe then
+			p.travelled += math.max(0, (probe.Position - (bottom + Vector3.new(0, 3, 0))).Magnitude - 1)
+			if p.state == "carry" then
+				detonate(p, Data.Katana_Crescent.impact, p.hitBy, p.victim)
+			else
+				detonate(p, Data.Katana_Crescent.dissolve)
+			end
+		else
+			p.travelled += step
+			if p.travelled >= range and p.state == "flying" then
+				p.travelled = range
+				detonate(p, Data.Katana_Crescent.dissolve)
+			end
+		end
+		-- meeting someone: slow and push into them while the server decides
+		if p.state == "flying" then
+			local leading = p.origin + p.direction * (p.travelled + 4.5)
+			for _, model in ipairs(game:GetService("CollectionService"):GetTagged("Combatant")) do
+				local other = model:FindFirstChild("HumanoidRootPart")
+				local humanoid = model:FindFirstChildOfClass("Humanoid")
+				if model ~= p.model and other and humanoid and humanoid.Health > 0 then
+					local offset = other.Position - leading
+					local along = offset:Dot(p.direction)
+					local side = (offset - p.direction * along) * FLAT
+					local untilTime = model:GetAttribute("IFramesUntil")
+					local dodging = type(untilTime) == "number" and Workspace:GetServerTimeNow() < untilTime
+					if not dodging and along <= 0.5 and along > -step - 6 and side.Magnitude < 4.5 then
+						p.state = "hold"
+						p.since = now
+						break
+					end
+				end
+			end
+		end
+	end
+	local fade = 1
+	if p.state == "done" then
+		fade = 1 - (now - p.doneAt) / P.fade
+		if fade <= 0 then
+			destroyProjectile(p)
+			return false
+		end
+	end
+	local centre = drawProjectile(p, math.max(fade, 0))
+	p.lightAttachment.CFrame = CFrame.lookAlong(centre.Position, p.direction)
+	return true
+end
+
+local function launchProjectile(model, origin, direction, tilt)
+	local P = Data.Katana_Crescent.projectile
+	local p = newProjectile(model, origin, direction, P, tilt)
+	projectiles[model] = projectiles[model] or {}
+	table.insert(projectiles[model], p)
+	local last = os.clock()
+	run(function()
+		local now = os.clock()
+		local dt = math.min(now - last, 0.1)
+		last = now
+		if p.destroyed then
+			return false
+		end
+		return updateProjectile(p, dt)
+	end, function()
+		destroyProjectile(p)
+	end)
+	return p
+end
+
+function KatanaFX._projectileEnded() end
 
 ------------------------------------------------------------------------
 -- Sessions: one playing skill clip on one body
@@ -1729,6 +1845,26 @@ function Session:update(dt)
 		end
 	end
 
+	-- Moonfall's releases: each one throws a crescent from the floor in front
+	if self.releases then
+		for i, release in ipairs(self.releases) do
+			local at = self.markers[release.marker]
+			if at and not self.released[i] and t >= at then
+				self.released[i] = true
+				local root = self.root.CFrame
+				local direction = flatUnit(root.LookVector)
+				local from = root.Position + direction * 3
+				local floor = floorBelow(from + Vector3.new(0, 2, 0), 10) or (from - Vector3.new(0, 3, 0))
+				launchProjectile(self.model, floor + Vector3.new(0, Data.Katana_Crescent.projectile.height, 0), direction, release.tilt)
+			end
+		end
+	end
+
+	-- emitters that pour while their window is open (dash smoke, aura)
+	for _, e in ipairs(self.emitters) do
+		e.emitter.Enabled = t >= e.look.from and t <= e.look.to
+	end
+
 	-- the Hit marker: remember where the blade was and which way it cut
 	local hitAt = self.markers.Hit
 	if hitAt and not self.hitSnapshot and t >= hitAt then
@@ -1747,15 +1883,7 @@ end
 
 function Session:onHitMarker()
 	local name = self.clipName
-	if name == "Katana_Crescent" then
-		-- launch: the blade of light leaves from the floor in front
-		local root = self.root.CFrame
-		local direction = flatUnit(root.LookVector)
-		local at = root.Position + direction * 3
-		local floor = floorBelow(at + Vector3.new(0, 2, 0), 10) or (at - Vector3.new(0, 3, 0))
-		local P = Data.Katana_Crescent.projectile
-		launchProjectile(self.model, floor + Vector3.new(0, P.height, 0), direction)
-	elseif name == "Katana_Rush" then
+	if name == "Katana_Rush" then
 		-- a whiff still slashes the air (a hit replaces it within a beat)
 		local session = self
 		local own = localPlayer and self.model == localPlayer.Character
@@ -1790,6 +1918,10 @@ function Session:finish(interrupted)
 	if self.trailBody then
 		self.trailBody.Enabled = false
 		self.trailEdge.Enabled = false
+	end
+	for _, e in ipairs(self.emitters) do
+		e.emitter.Enabled = false
+		Debris:AddItem(e.holder, 2)
 	end
 	-- blade glow and wake fade out quickly instead of popping off
 	local core, halo, light = self.bladeCore, self.bladeHalo, self.light
@@ -1877,6 +2009,37 @@ function KatanaFX.begin(model, track, clipName)
 			table.insert(self.wakeChains, newChain(8, skin))
 		end
 	end
+	-- pouring emitters, on the body or the blade
+	self.emitters = {}
+	for _, look in ipairs(spec.emitters or {}) do
+		local texture = textureFor(look.sprite)
+		if texture and texture ~= "" then
+			local holder = Instance.new("Attachment")
+			holder.Name = "KatanaFXEmitter"
+			local parent = root
+			if look.attach == "tip" and blade then
+				local _, _, ends = bladeEnds(blade)
+				holder.Position = ends.base:Lerp(ends.tip, 0.6)
+				parent = blade
+			elseif look.offset then
+				holder.Position = Vector3.new(look.offset[1], look.offset[2], look.offset[3])
+			end
+			if look.dir then
+				local d = Vector3.new(look.dir[1], look.dir[2], look.dir[3]).Unit
+				local right = math.abs(d.Y) < 0.95 and d:Cross(Vector3.yAxis).Unit or d:Cross(Vector3.xAxis).Unit
+				holder.CFrame = CFrame.fromMatrix(holder.Position, right, d)
+			end
+			holder.Parent = parent
+			local emitter = makeEmitter(look, texture)
+			emitter.Enabled = false
+			emitter.Parent = holder
+			table.insert(self.emitters, { look = look, emitter = emitter, holder = holder })
+		end
+	end
+	if clipName == "Katana_Crescent" then
+		self.releases = (Config.Attacks.KatanaCrescent and Config.Attacks.KatanaCrescent.releases) or { { marker = "Hit", tilt = 0 } }
+		self.released = {}
+	end
 	sessions[model] = self
 
 	-- the cast timeline runs on the clip's own clock
@@ -1924,7 +2087,7 @@ local function nearestProjectile(attacker, position)
 	local best, bestDistance
 	if list then
 		for _, p in ipairs(list) do
-			if not p.stopped or p.stopped == "hold" or os.clock() - p.stoppedAt < 0.05 then
+			if p.state ~= "done" then
 				local at = p.origin + p.direction * p.travelled
 				local d = ((at - position) * FLAT).Magnitude
 				if not bestDistance or d < bestDistance then
@@ -1949,6 +2112,11 @@ function KatanaFX.impact(kind, position, attacker, defender, info)
 		local session = typeof(attacker) == "Instance" and sessions[attacker]
 		if session then
 			session.impacted = true
+		end
+		-- the dash ends behind them: the slashes erupt on the victim
+		local victimRoot = typeof(defender) == "Instance" and defender:FindFirstChild("HumanoidRootPart")
+		if victimRoot then
+			position = victimRoot.Position + Vector3.new(0, 0.5, 0)
 		end
 		local frame
 		if session then
@@ -1980,32 +2148,35 @@ function KatanaFX.impact(kind, position, attacker, defender, info)
 		return clean and 0.5 or 0.2
 	end
 
-	-- Moonfall Crescent: stop the travelling blade where it struck
+	-- Moonfall Crescent: the travelling blade drives through them, then blows
 	local p = typeof(attacker) == "Instance" and nearestProjectile(attacker, position)
 	if kind == "Dodge" then
-		return 0 -- it went straight through them
+		if p and p.state == "hold" then
+			p.state = "flying" -- it went straight through them
+		end
+		return 0
 	end
-	local ctx
 	if p then
 		local along = (position - p.origin):Dot(p.direction)
 		local _, range = flight()
-		p.travelled = math.clamp(along, 0, range)
-		if not p.stopped or p.stopped == "hold" then
-			p.stopped = "hit"
-			p.stoppedAt = os.clock()
+		p.travelled = math.clamp(math.max(p.travelled, along - 4), 0, range)
+		if clean then
+			p.state = "carry"
+			p.carryUntil = os.clock() + spec.projectile.carry.time
+			p.hitBy, p.victim = attacker, defender
+		else
+			detonate(p, spec.dissolve, attacker, defender)
 		end
-		ctx = projectileContext(p, attacker, defender)
-	else
-		-- no local projectile (late joiner): stand the impact up at the hit
-		local root = typeof(attacker) == "Instance" and attacker:FindFirstChild("HumanoidRootPart")
-		local direction = root and flatUnit(position - root.Position, root.CFrame.LookVector) or Vector3.new(0, 0, -1)
-		local floor = floorBelow(position, 10) or (position - Vector3.new(0, 3, 0))
-		local fake = { origin = floor + Vector3.new(0, 0.4, 0), direction = direction, travelled = 0 }
-		ctx = projectileContext(fake, attacker, defender)
+		return clean and 0.6 or 0.25
 	end
-	local layers = clean and spec.impact or spec.dissolve
+	-- no local projectile (late joiner): the explosion where it struck
+	local root = typeof(attacker) == "Instance" and attacker:FindFirstChild("HumanoidRootPart")
+	local direction = root and flatUnit(position - root.Position, root.CFrame.LookVector) or Vector3.new(0, 0, -1)
+	local floor = floorBelow(position, 10) or (position - Vector3.new(0, 3, 0))
+	local fake = { origin = floor + Vector3.new(0, 0.4, 0), direction = direction, travelled = 0, tilt = 0 }
+	local ctx = projectileContext(fake, attacker, defender)
 	local start = os.clock()
-	playLayers(layers, ctx, function()
+	playLayers(clean and spec.impact or spec.dissolve, ctx, function()
 		return os.clock() - start
 	end)
 	return clean and 0.6 or 0.25

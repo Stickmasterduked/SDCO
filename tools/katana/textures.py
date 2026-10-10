@@ -304,6 +304,163 @@ def contact_sheet():
     sheet.save(PREVIEW)
 
 
+
+
+# ---------------------------------------------------------------------------
+# Round 2: flipbooks and thick shapes (no thin lines). 4x4 flipbooks are
+# 1024px (256px cells), played OneShot over a particle's life.
+
+def blur_noise(n, sigma, seed):
+    from PIL import ImageFilter
+    rng = np.random.default_rng(seed)
+    a = rng.random((n, n))
+    img = Image.fromarray((a * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(sigma))
+    b = np.asarray(img, np.float64) / 255
+    return (b - b.min()) / (b.max() - b.min() + 1e-9)
+
+
+def flipbook(name, cell_fn, cells=4, size=256):
+    sheet_rgb = np.zeros((size * cells, size * cells, 3))
+    sheet_a = np.zeros((size * cells, size * cells))
+    for i in range(cells * cells):
+        u = i / (cells * cells - 1)
+        rgb, a = cell_fn(u, i, size)
+        r, c = divmod(i, cells)
+        if rgb.ndim == 2:
+            rgb = np.repeat(rgb[..., None], 3, axis=2)
+        sheet_rgb[r * size:(r + 1) * size, c * size:(c + 1) * size] = rgb
+        sheet_a[r * size:(r + 1) * size, c * size:(c + 1) * size] = a
+    return save(name, sheet_rgb, sheet_a)
+
+
+def explosion():
+    """Energy explosion: hot white core -> spiky expanding ball -> a ring of
+    lavender energy licks -> smoky dissolve."""
+    n1 = blur_noise(256, 6, 1)
+    n2 = blur_noise(256, 3, 2)
+
+    def cell(u, i, size):
+        x, y = grid(size)
+        r = np.sqrt(x * x + y * y)
+        th = np.arctan2(y, x)
+        grow = 0.3 + 0.62 * (1 - (1 - u) ** 2.2)
+        wob = (n1 - 0.5) * 0.55 + (n2 - 0.5) * 0.2
+        edge = grow * (1 + wob * (0.4 + u))
+        ball = smoothstep(edge, edge * 0.55, r)  # filled ball
+        hollow = smoothstep(0.4, 0.9, u)
+        inner = smoothstep(edge * (0.2 + 0.6 * hollow), edge * (0.45 + 0.45 * hollow), r)
+        body = ball * (1 - hollow + hollow * inner)
+        breakup = smoothstep(0.5, 1.0, u)
+        body *= 1 - breakup * smoothstep(0.35, 0.75, n2 + (1 - u) * 0.2) * 1.0
+        fade = (1 - smoothstep(0.65, 1.0, u)) * 0.85 + 0.15 * (1 - u)
+        core = np.exp(-(r / (0.15 + 0.3 * grow)) ** 2) * (1 - smoothstep(0.0, 0.6, u))
+        a = np.clip(body * fade + core, 0, 1)
+        heat = np.clip(core * 1.5 + (1 - r / np.maximum(edge, 1e-3)) * (1 - u) * 1.6, 0, 1)[..., None]
+        lav = np.array([0.78, 0.66, 1.0])
+        cyan = np.array([0.6, 0.92, 1.0])
+        rim = np.clip(r / np.maximum(edge, 1e-3), 0, 1)[..., None]
+        col = lav * (1 - rim * 0.4) + cyan * rim * 0.4
+        rgb = col * (1 - heat) + heat
+        return rgb, a * smoothstep(1.0, 0.92, r)
+    return flipbook("explosion", cell)
+
+
+def smoke():
+    """Billowing energy smoke puff (white, tinted at runtime), fading out."""
+    n1 = blur_noise(256, 9, 3)
+    n2 = blur_noise(256, 4, 4)
+
+    def cell(u, i, size):
+        x, y = grid(size)
+        r = np.sqrt(x * x + y * y)
+        grow = 0.35 + 0.6 * (1 - (1 - u) ** 2)
+        lump = (n1 - 0.5) * 0.5 + (n2 - 0.5) * 0.25
+        a = smoothstep(grow * (1 + lump), grow * 0.4, r)
+        a *= 0.85 * (1 - u) ** 1.3 + 0.0
+        a *= 0.55 + 0.45 * n2
+        shade = 0.75 + 0.25 * (1 - y) / 2
+        return np.clip(shade, 0, 1), np.clip(a, 0, 1) * smoothstep(1.0, 0.9, r)
+    return flipbook("smoke", cell)
+
+
+def slash():
+    """A slash flash: a razor crescent tears in, flares wide, then splits and
+    scatters. Chord horizontal."""
+    n2 = blur_noise(256, 2, 5)
+
+    def cell(u, i, size):
+        x, y = grid(size)
+        y = -y
+        R = 1.6
+        cy = 0.18 - R
+        rr = np.sqrt(x * x + (y - cy) ** 2)
+        th = np.arctan2(y - cy, x)
+        half = math.asin(0.92 / R)
+        s = (th - (math.pi / 2 - half)) / (2 * half)
+        inside = (s > 0) & (s < 1)
+        reveal = min(1.0, u / 0.25)
+        prof = np.where(inside & (1 - s <= reveal), np.sin(np.clip(s, 0, 1) * math.pi) ** 1.2, 0)
+        thick = (0.04 + 0.22 * math.sin(min(u, 0.6) / 0.6 * math.pi / 2)) * prof + 1e-4
+        d = R - rr
+        body = np.where((d > -0.01) & (d < thick), 1.0, 0.0) * smoothstep(thick, thick * 0.3, d)
+        edge = np.exp(-np.abs(d) / 0.012) * prof
+        glow = np.exp(-np.abs(d - thick / 2) / (0.08 + 0.15 * u)) * prof * 0.5
+        split = smoothstep(0.55, 1.0, u)
+        crack = smoothstep(0.4, 0.6, n2) * split
+        a = (body * 0.85 + edge + glow) * (1 - crack) * (1 - smoothstep(0.75, 1.0, u))
+        a = np.clip(a, 0, 1)
+        hot = np.clip(edge + body * (1 - u) * 0.8, 0, 1)[..., None]
+        rgb = np.array([0.78, 0.68, 1.0]) * (1 - hot) + hot
+        return rgb, a * smoothstep(1.0, 0.92, np.abs(x))
+    return flipbook("slash", cell)
+
+
+def shock():
+    """Shockwave ring: a bright crisp front with a soft energy wake inside."""
+    x, y = grid(1024)
+    r = np.sqrt(x * x + y * y)
+    th = np.arctan2(y, x)
+    noise = 0.8 + 0.2 * np.sin(th * 17) * np.sin(th * 5 + 1)
+    front = np.exp(-((r - 0.86) / 0.025) ** 2)
+    wake = np.where(r < 0.86, np.exp(-(0.86 - r) / 0.16), 0) * 0.55 * noise
+    a = np.clip(front + wake, 0, 1) * smoothstep(1.0, 0.95, r)
+    rgb = np.dstack([np.ones_like(r), np.ones_like(r), np.ones_like(r)])
+    return save("shock", rgb, a)
+
+
+def spike():
+    """Impact star: thick tapered spikes (manga impact), not hairlines."""
+    x, y = grid(1024)
+    r = np.sqrt(x * x + y * y)
+    th = np.arctan2(y, x)
+    rng = random.Random(9)
+    a = np.zeros_like(r)
+    for k in range(12):
+        ang = k / 12 * 2 * math.pi + rng.uniform(-0.15, 0.15)
+        length = rng.uniform(0.55, 0.97)
+        width = rng.uniform(0.09, 0.16)
+        d = np.angle(np.exp(1j * (th - ang)))
+        w = width * np.clip(1 - r / length, 0, 1)
+        a = np.maximum(a, smoothstep(w, w * 0.6, np.abs(d)) * (r < length) * smoothstep(0.0, 0.08, r))
+    a = np.clip(a + np.exp(-(r / 0.22) ** 2), 0, 1) * smoothstep(1.0, 0.95, r)
+    return save("spike", white(r.shape), a)
+
+
+def energy():
+    """Swirling energy blob (auras, charge-ups)."""
+    x, y = grid(512)
+    r = np.sqrt(x * x + y * y)
+    th = np.arctan2(y, x)
+    swirl = 0.6 + 0.4 * np.sin(th * 3 + r * 9)
+    a = np.exp(-(r / 0.5) ** 2) * swirl + np.exp(-(r / 0.18) ** 2) * 0.6
+    a = np.clip(a, 0, 1) * smoothstep(1.0, 0.85, r)
+    return save("energy", white(r.shape), a)
+
+
+ALL += [explosion, smoke, slash, shock, spike, energy]
+NAMES += ["explosion", "smoke", "slash", "shock", "spike", "energy"]
+
+
 if __name__ == "__main__":
     for f in ALL:
         f()

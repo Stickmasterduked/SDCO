@@ -223,20 +223,29 @@ Config.Attacks = {
 	-- attacker's client at the clip's Hit marker like any strike; claimSlack
 	-- widens the server's check because the dash outruns its view of you.
 	KatanaRush = {
-		anim = "Katana_Rush", damage = 14, posture = 35, hitstun = 0.8, walkSpeed = 0,
-		range = 8.5, width = 9, height = 7, knockback = 46, launch = 10,
+		anim = "Katana_Rush", damage = 14, posture = 35, hitstun = 1.05, walkSpeed = 0,
+		range = 8.5, width = 9, height = 7, knockback = 78, launch = 32,
 		react = "Knockback", heavy = true, feintable = false, katanaSkill = true,
-		cooldown = 12, readyField = "rushReadyAt", claimSlack = 10,
+		cooldown = 12, readyField = "rushReadyAt", claimSlack = 14,
+		-- the dash cuts THROUGH them: the hit is anyone the dash path passed
 		rush = true,
 	},
 	-- X, Moonfall Crescent: an overhead cut that launches a travelling slash.
 	-- The server flies it and decides the hit (range/width/height are the
 	-- crescent's own box, swept along its path).
 	KatanaCrescent = {
-		anim = "Katana_Crescent", damage = 16, posture = 40, hitstun = 0.9, walkSpeed = 0,
-		range = 72, width = 7, height = 17, knockback = 55, launch = 16,
-		react = "Knockback", heavy = true, feintable = false, katanaSkill = true,
+		anim = "Katana_Crescent", damage = 9, posture = 22, hitstun = 0.7, walkSpeed = 0,
+		range = 72, width = 7, height = 17, knockback = 14, launch = 4,
+		react = "HitFront", heavy = true, feintable = false, katanaSkill = true,
 		cooldown = 15, readyField = "crescentReadyAt", projectile = true,
+		-- a cross slash: one crescent per release (clip marker), each its own
+		-- hit; anything listed overrides the fields above for that crescent.
+		-- tilt: degrees the crescent leans about its travel direction.
+		releases = {
+			{ marker = "Hit", tilt = 0 },
+			{ marker = "Hit2", tilt = -48, damage = 11, posture = 26, hitstun = 1.1, knockback = 88, launch = 30,
+				react = "Knockback", width = 12, height = 15 },
+		},
 	},
 }
 
@@ -290,19 +299,21 @@ Config.HeadDrive = {
 Config.KatanaSkills = {
 	KatanaRush = {
 		key = "Z",
-		dashDuration = 0.3, -- from the clip's Dash marker; the cut lands as it ends
-		maxDistance = 26, -- dash length with no one ahead
-		minDistance = 6,
-		stopShort = 5.2, -- ends this far from the target: blade reach, not bodies
+		dashDuration = 0.28, -- from the clip's Dash marker
+		maxDistance = 30, -- dash length with no one ahead
+		minDistance = 10,
+		passBy = 6, -- carries on this far past the target (cuts through them)
+		bend = { 2.5, 4.5 }, -- the dash bows sideways by this much (random side)
+		pathRadius = 5.5, -- how close the dash must pass someone to cut them
 		targetRange = 30, -- picks the opponent you're facing within this ...
 		targetAngle = 40, -- ... and this many degrees of your aim
-		hitStop = 0.16,
+		hitStop = 0.2,
 	},
 	KatanaCrescent = {
 		key = "X",
 		speed = 92, -- studs/s
 		range = 72,
-		hitStop = 0.14, -- the victim only; the caster is far away
+		hitStop = 0.16, -- the victim only; the caster is far away
 	},
 }
 
@@ -323,6 +334,13 @@ Config.KatanaTextures = {
 	ribbonFlow = "",
 	ribbonSoft = "",
 	bladeTrail = "",
+	-- round 2 (flipbooks are 4x4)
+	explosion = "",
+	smoke = "",
+	slash = "",
+	shock = "",
+	spike = "",
+	energy = "",
 }
 
 Config.Sounds = {

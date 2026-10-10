@@ -1043,6 +1043,9 @@ local function predictOutcome(attack, root, target)
 	return heavy and "HeavyHit" or "Hit", reaction
 end
 
+-- Where this cast's dash started (the hit is anyone the path passed).
+local rushPath = nil
+
 local function clientHit(kind, attackId, token)
 	if token ~= attackToken then
 		return
@@ -1063,7 +1066,26 @@ local function clientHit(kind, attackId, token)
 			table.insert(candidates, model)
 		end
 	end
-	local target = Hitbox.find(root, attack, candidates)
+	local target
+	if attack.rush and rushPath and rushPath.token == token then
+		-- whoever the dash passed closest to (it cut straight through them)
+		local a, b = rushPath.from, root.Position
+		local ab = (b - a) * FLAT
+		local best
+		for _, model in ipairs(candidates) do
+			local other = model:FindFirstChild("HumanoidRootPart")
+			if other and math.abs(other.Position.Y - root.Position.Y) < 6 then
+				local ap = (other.Position - a) * FLAT
+				local along = ab.Magnitude > 0.01 and math.clamp(ap:Dot(ab) / ab:Dot(ab), 0, 1) or 0
+				local miss = (ap - ab * along).Magnitude
+				if miss <= Config.KatanaSkills.KatanaRush.pathRadius and (not best or miss < best) then
+					target, best = model, miss
+				end
+			end
+		end
+	else
+		target = Hitbox.find(root, attack, candidates)
+	end
 	if not target or hasIFrames(target) then
 		return
 	end
@@ -1910,8 +1932,32 @@ local function rushTarget(root)
 	return best
 end
 
--- Lumen Rush moves on its clip's Dash marker: straight at the target,
--- stopping at blade reach so the cut lands on the Hit marker.
+-- Other fighters stop colliding with us for the dash, so it cuts through
+-- them instead of bumping (local only: our own body's physics is ours).
+local function ghostThrough(duration)
+	local character = player.Character
+	local changed = {}
+	for _, model in ipairs(CollectionService:GetTagged("Combatant")) do
+		if model ~= character then
+			for _, part in ipairs(model:GetDescendants()) do
+				if part:IsA("BasePart") and part.CanCollide then
+					part.CanCollide = false
+					table.insert(changed, part)
+				end
+			end
+		end
+	end
+	task.delay(duration, function()
+		for _, part in ipairs(changed) do
+			if part.Parent then
+				part.CanCollide = true
+			end
+		end
+	end)
+end
+
+-- Lumen Rush moves on its clip's Dash marker: through the target and out
+-- past them, bowing to a random side so it never reads as a straight line.
 local function armRush(token)
 	local character = getCharacter()
 	local track = character and getTrack(character, Config.Attacks.KatanaRush.anim)
@@ -1936,11 +1982,14 @@ local function armRush(token)
 		if target then
 			local offset = (target.Position - root.Position) * FLAT
 			direction = offset.Unit
-			distance = math.clamp(offset.Magnitude - S.stopShort, S.minDistance, S.maxDistance)
+			distance = math.clamp(offset.Magnitude + S.passBy, S.minDistance, S.maxDistance)
 		end
 		root.CFrame = CFrame.lookAt(root.Position, root.Position + direction)
 		predicted.lockFacingUntil = os.clock() + S.dashDuration + 0.1
-		Motion.rush(root, direction * distance, S.dashDuration)
+		rushPath = { from = root.Position, token = token }
+		ghostThrough(S.dashDuration + 0.25)
+		local bend = (S.bend[1] + math.random() * (S.bend[2] - S.bend[1])) * (math.random() < 0.5 and -1 or 1)
+		Motion.rush(root, direction * distance, S.dashDuration, bend)
 	end)
 	task.delay(2, function()
 		connection:Disconnect()

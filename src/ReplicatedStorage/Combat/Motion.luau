@@ -189,14 +189,23 @@ end
 -- v(u) ~ u^A (1 - u)^B, the same curve tools/katana/motionprofile.py uses.
 
 local RUSH_A, RUSH_B, RUSH_STEPS = 0.5, 1.4, 256
-local rushTotal = 0
+local rushCum = { 0 } -- distance share covered by each step of the clock
 for i = 0, RUSH_STEPS - 1 do
 	local u0, u1 = i / RUSH_STEPS, (i + 1) / RUSH_STEPS
-	rushTotal += ((u0 ^ RUSH_A) * (1 - u0) ^ RUSH_B + (u1 ^ RUSH_A) * (1 - u1) ^ RUSH_B) / 2 / RUSH_STEPS
+	rushCum[i + 2] = rushCum[i + 1] + ((u0 ^ RUSH_A) * (1 - u0) ^ RUSH_B + (u1 ^ RUSH_A) * (1 - u1) ^ RUSH_B) / 2 / RUSH_STEPS
+end
+local rushTotal = rushCum[RUSH_STEPS + 1]
+
+local function rushShare(u)
+	local x = math.clamp(u, 0, 1) * RUSH_STEPS
+	local i = math.min(math.floor(x), RUSH_STEPS - 1)
+	return (rushCum[i + 1] + (rushCum[i + 2] - rushCum[i + 1]) * (x - i)) / rushTotal
 end
 
-function Motion.rush(root, displacement, duration)
+-- `bend` bows the path sideways by that many studs at its middle (sign = side).
+function Motion.rush(root, displacement, duration, bend)
 	Motion.stop(root)
+	bend = bend or 0
 	local flatMove = flat(displacement)
 	local distance = flatMove.Magnitude
 	if distance < 0.05 or duration <= 0 then
@@ -217,7 +226,13 @@ function Motion.rush(root, displacement, duration)
 		end
 		u = math.max(u, 1e-3)
 		local speed = distance / duration * (u ^ RUSH_A) * (1 - u) ^ RUSH_B / rushTotal
-		push.PlaneVelocity = Vector2.new(direction.X, direction.Z) * speed
+		-- the bow: lateral offset bend * sin(pi * s), s = share of the distance
+		-- covered, so its rate is bend * pi * cos(pi * s) * ds/dt
+		local s = rushShare(u)
+		local lateral = bend * math.pi * math.cos(math.pi * s) * speed / distance
+		local side = Vector3.new(-direction.Z, 0, direction.X)
+		local v = direction * speed + side * lateral
+		push.PlaneVelocity = Vector2.new(v.X, v.Z)
 	end)
 end
 

@@ -584,8 +584,10 @@ local function startAttack(c, kind, predicted, attackId, inheritedSpeed)
 	if attack.rush and anim.markers.Dash then
 		task.delay(anim.markers.Dash / speed, function()
 			if c.token == token and isAlive(c) then
+				local S = Config.KatanaSkills.KatanaRush
 				local look = flat(c.root.CFrame.LookVector).Unit
-				motion(c, "rush", look * CombatService.rushDistance(c), Config.KatanaSkills.KatanaRush.dashDuration / speed)
+				local bend = math.random(S.bend[1] * 10, S.bend[2] * 10) / 10 * (math.random() < 0.5 and -1 or 1)
+				Motion.rush(c.root, look * CombatService.rushDistance(c), S.dashDuration / speed, bend)
 			end
 		end)
 	end
@@ -660,7 +662,14 @@ function CombatService.claimHit(c, attackId, targetModel, startCF)
 	if now() < a.hitAt - Config.HitClaim.EarlyTolerance then
 		return false
 	end
-	if not Hitbox.plausible(c.root, target.root, attack, Config.HitClaim.RangeSlack + (attack.claimSlack or 0)) then
+	local slack = Config.HitClaim.RangeSlack + (attack.claimSlack or 0)
+	if attack.rush then
+		-- the dash cut through them and carried on: any side, close enough
+		local offset = target.root.Position - c.root.Position
+		if (offset * FLAT).Magnitude > attack.range + slack or math.abs(offset.Y) > 8 then
+			return false
+		end
+	elseif not Hitbox.plausible(c.root, target.root, attack, slack) then
 		return false
 	end
 	a.resolved = true
@@ -1017,8 +1026,8 @@ local function katanaReady(c)
 	return c.katanaDrawn == true and c.model:GetAttribute("Weapon") == "Katana"
 end
 
--- How far Lumen Rush dashes: up to the opponent in front (stopping at
--- blade reach), or the full length with nobody there. Players' clients
+-- How far Lumen Rush dashes: through the opponent in front and out past
+-- them, or the full length with nobody there. Players' clients
 -- decide this themselves; this is for dummies.
 function CombatService.rushDistance(c)
 	local S = Config.KatanaSkills.KatanaRush
@@ -1038,7 +1047,7 @@ function CombatService.rushDistance(c)
 		end
 	end
 	if best then
-		return math.clamp(best - S.stopShort, S.minDistance, S.maxDistance)
+		return math.clamp(best + S.passBy, S.minDistance, S.maxDistance)
 	end
 	return S.maxDistance
 end
@@ -1056,7 +1065,7 @@ end
 
 -- The travelling crescent, flown here: a box swept along its path each
 -- frame; the first fighter inside it is hit, walls stop it.
-local function flyCrescent(c, attack, a)
+local function flyCrescent(c, attack, a, onEnd)
 	local S = Config.KatanaSkills.KatanaCrescent
 	local direction = flat(c.root.CFrame.LookVector)
 	direction = direction.Magnitude > 0.01 and direction.Unit or Vector3.new(0, 0, -1)
@@ -1083,9 +1092,7 @@ local function flyCrescent(c, attack, a)
 	local connection
 	local function finish()
 		connection:Disconnect()
-		if not a.contact then
-			refundWhiff(c, "crescentReadyAt", a.started, attack.cooldown)
-		end
+		onEnd()
 	end
 	connection = RunService.Heartbeat:Connect(function()
 		local t = now()
@@ -1154,23 +1161,39 @@ function CombatService.katanaCrescent(c, predicted, attackId)
 	setCooldown(c, "crescentReadyAt", t + attack.cooldown)
 	c.sprinting = false
 
-	local a = { kind = "KatanaCrescent", def = attack, started = t, hitAt = t + anim.markers.Hit, id = attackId, speed = 1 }
+	-- (recovery cancels open once the last crescent has left)
+	local a = { kind = "KatanaCrescent", def = attack, started = t, hitAt = t + (anim.markers.Hit2 or anim.markers.Hit), id = attackId, speed = 1 }
 	c.attack = a
 	local token = setState(c, "Attacking")
 	c.nextActionAt = t + anim.recover
 	playAnim(c, attack.anim, predicted)
 	attackStarted:Fire(c, "KatanaCrescent", a.hitAt)
 
-	-- released on the clip's Hit marker; once it's flying, it flies even if
-	-- the caster is interrupted afterwards
-	task.delay(anim.markers.Hit, function()
-		if c.token ~= token or not isAlive(c) then
-			-- cut short before the release: nothing was thrown
+	-- One crescent per release (the cross slash). Each flies even if the
+	-- caster is interrupted afterwards; a release that never came (cut short)
+	-- throws nothing. The cooldown is refunded once none of them connected.
+	local releases = attack.releases or { { marker = "Hit" } }
+	local outstanding = #releases
+	local function oneEnded()
+		outstanding -= 1
+		if outstanding == 0 and not a.contact then
 			refundWhiff(c, "crescentReadyAt", a.started, attack.cooldown)
-			return
 		end
-		flyCrescent(c, attack, a)
-	end)
+	end
+	for _, release in ipairs(releases) do
+		local def = table.clone(attack)
+		for key, value in pairs(release) do
+			def[key] = value
+		end
+		def.damage = Config.damageFor(c.model, def.damage)
+		task.delay(anim.markers[release.marker] or anim.markers.Hit, function()
+			if c.token ~= token or not isAlive(c) then
+				oneEnded()
+				return
+			end
+			flyCrescent(c, def, a, oneEnded)
+		end)
+	end
 	task.delay(anim.recover, function()
 		if c.token == token then
 			c.attack = nil
