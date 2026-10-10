@@ -5631,16 +5631,18 @@ local function playLayers(layers, ctx, clock)
 end
 
 local function resolver(ctx, name)
-	local f = ctx.frames[name]
-	if f then
-		return f
-	end
-	return ctx.frames.root
+	local frames = ctx.frames
+	-- the layer's own frame, else the context's main one (impacts have no
+	-- "root": camera and sound cues sit on the cut / the crescent instead)
+	return frames[name] or frames.root or frames.cut or frames.proj or frames.ground
 end
 
 spawnLayer = function(layer, ctx)
 	local kind = layer.type
 	local resolve = resolver(ctx, layer.frame or "root")
+	if not resolve then
+		return
+	end
 	-- frames that move (the blade, the travelling crescent) are followed
 	-- by layers that need it; everything else is frozen where it spawned
 	local frame = resolve()
