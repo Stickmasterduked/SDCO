@@ -461,6 +461,103 @@ ALL += [explosion, smoke, slash, shock, spike, energy]
 NAMES += ["explosion", "smoke", "slash", "shock", "spike", "energy"]
 
 
+# ---------------------------------------------------------------------------
+# Round 3: sakura petals (they replace the star sparkles). Colour is baked
+# (pale pink, white tips, a deeper base) and they render with low light
+# emission, so they read as petals over the explosions, not as more glow.
+
+PETAL_BASE = np.array([1.0, 0.56, 0.78])
+PETAL_MID = np.array([1.0, 0.84, 0.93])
+PETAL_TIP = np.array([1.0, 0.97, 0.99])
+PETAL_BACK = np.array([0.93, 0.62, 0.84])
+
+
+def petal_shape(px, py):
+    """A sakura petal in its own frame: base at py = 0, tip (notched) at
+    py = 1, half-width about 0.32. Returns (alpha, v) with v = 0 at the base."""
+    v = py
+    lobe = (px / 0.33) ** 2 + ((v - 0.6) / 0.42) ** 2  # the broad, round outer half
+    stem_w = 0.33 * np.sin(np.clip(v / 0.6, 0, 1) * math.pi / 2) ** 1.1  # tapering to the base
+    d_lobe = 1 - np.sqrt(lobe)  # > 0 inside
+    d_stem = np.where((v > 0) & (v < 0.6), (stem_w - np.abs(px)) / 0.34, -1)
+    d = np.maximum(d_lobe, d_stem)
+    # the notch at the tip
+    notch = 1.02 - 0.17 * np.clip(1 - np.abs(px) / 0.13, 0, 1) ** 1.3
+    d = np.minimum(d, (notch - v) * 3)
+    alpha = smoothstep(-0.006, 0.014, d)
+    return alpha, np.clip(v, 0, 1), d
+
+
+def petal_color(v, d, px, back=False):
+    t = np.clip(v, 0, 1)[..., None]
+    base = PETAL_BACK if back else PETAL_BASE
+    col = np.where(t < 0.5, base + (PETAL_MID - base) * (t / 0.5), PETAL_MID + (PETAL_TIP - PETAL_MID) * ((t - 0.5) / 0.5))
+    # a faint centre vein and brighter rim (light through the edge)
+    vein = np.exp(-(px / 0.02) ** 2)[..., None] * (1 - t) * 0.12
+    rim = (1 - smoothstep(0.0, 0.12, d))[..., None] * 0.1
+    return np.clip(col - vein + rim, 0, 1)
+
+
+def petal_layer(x, y, cx, cy, scale, angle, sx=1.0, sy=1.0, back=False):
+    """One petal drawn into the grid: centred at (cx, cy), pointing along
+    `angle` (0 = up), foreshortened by sx / sy (tumbling)."""
+    xr, yr = rotate(x - cx, y - cy, -angle)
+    px = xr / (scale * max(abs(sx), 1e-3))
+    py = -yr / (scale * max(abs(sy), 1e-3)) + 0.5  # petal centre at the middle of its length
+    a, v, d = petal_shape(px, py)
+    shade = 0.82 + 0.18 * min(abs(sx), 1)  # edge-on is a little darker
+    return petal_color(v, d, px, back) * shade, a
+
+
+def petal():
+    """A single petal, upright."""
+    x, y = grid(512)
+    rgb, a = petal_layer(x, y, 0, 0, 1.75, 0)
+    return save("petal", rgb, a)
+
+
+def petals():
+    """4x4 flipbook of a petal tumbling twice through its life (spins about
+    its length and pitches, showing the paler back as it turns over)."""
+    def cell(u, i, size):
+        x, y = grid(size)
+        turn = u * 2 * math.tau
+        sx = math.cos(turn)
+        sy = 0.65 + 0.35 * math.cos(u * math.tau * 1.3 + 0.8)
+        rgb, a = petal_layer(x, y, 0, 0, 1.6, math.radians(25 * math.sin(u * math.tau)), sx, sy, back=sx < 0)
+        return rgb, a
+    return flipbook("petals", cell)
+
+
+def blossom():
+    """A five-petal sakura flower with a soft pink heart and stamens."""
+    x, y = grid(1024)
+    rgb = np.zeros(x.shape + (3,))
+    a = np.zeros(x.shape)
+    for k in range(5):
+        ang = k * math.tau / 5
+        cx, cy = math.sin(ang) * 0.47, -math.cos(ang) * 0.47
+        prgb, pa = petal_layer(x, y, cx, cy, 0.98, -ang)
+        rgb = rgb * (1 - pa[..., None]) + prgb * pa[..., None]
+        a = np.maximum(a, pa)
+    r = np.sqrt(x * x + y * y)
+    heart = np.exp(-(r / 0.16) ** 2)[..., None]
+    rgb = rgb * (1 - heart * 0.55) + np.array([1.0, 0.45, 0.7]) * heart * 0.55
+    a = np.maximum(a, np.exp(-(r / 0.14) ** 2))
+    rng = random.Random(9)
+    for _ in range(14):
+        ang = rng.uniform(0, math.tau)
+        rr = rng.uniform(0.09, 0.2)
+        sx, sy = math.cos(ang) * rr, math.sin(ang) * rr
+        dot = np.exp(-(((x - sx) ** 2 + (y - sy) ** 2) / 0.012 ** 2))[..., None]
+        rgb = rgb * (1 - dot) + np.array([1.0, 0.93, 0.7]) * dot
+    return save("blossom", np.clip(rgb, 0, 1), a)
+
+
+ALL += [petal, petals, blossom]
+NAMES += ["petal", "petals", "blossom"]
+
+
 if __name__ == "__main__":
     for f in ALL:
         f()

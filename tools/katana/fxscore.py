@@ -151,10 +151,37 @@ def sparks(at, frame, count, speed=(40, 100), dirv=(0, 1, 0), spread=180, size=0
     return burst(at, frame, "spark", **kw)
 
 
-def embers(at, frame, count, spread_r=4, life=(0.8, 1.4), tint=LAVENDER):
-    return burst(at, frame, "glint", count=count, life=list(life), radius=spread_r, speed=[3, 9], spread=180, drag=2, accel=[0, 6, 0],
-                 size=keys((0, 0.2), (0.3, 0.7), (1, 0)), transparency=keys((0, 0), (0.8, 0.2), (1, 1)),
-                 color=keys((0, WHITE), (1, tint)), rotation=[0, 360], spin=[-200, 200], brightness=3)
+# Sakura petals (they replace the old star sparkles): baked pink sprites with
+# low light emission so they read as petals, not glow, over the explosions.
+# brightness ~2.2 lands near 1 after KatanaFX's GLOW_DIM.
+PETAL = dict(flip="4x4", rotation=[0, 360], spin=[-220, 220], emission=0.25, brightness=2.2,
+             color=keys((0, WHITE), (1, (255, 226, 240))))
+
+
+def petals(at, frame, count, radius=4, speed=(8, 22), life=(1.1, 1.9), size=0.9, dirv=(0, 1, 0), spread=180, offset=(0, 0, 0)):
+    """A gust of petals flung out, then drifting down and tumbling."""
+    return burst(at, frame, "petals", count=count, life=list(life), radius=radius, speed=list(speed), dir=list(dirv), spread=spread,
+                 offset=list(offset), drag=2.4, accel=[0, -3.5, 0], size=keys((0, size * 0.5), (0.12, size), (0.85, size), (1, size * 0.6)),
+                 transparency=keys((0, 0), (0.75, 0.05), (1, 1)), **PETAL)
+
+
+def blooms(at, frame, count, radius=2, speed=(10, 26), size=2.2, life=(0.7, 1.1)):
+    """Whole blossoms thrown out of a big hit, spinning as they fall."""
+    return burst(at, frame, "blossom", count=count, life=list(life), radius=radius, speed=list(speed), spread=180, drag=3,
+                 accel=[0, -4, 0], size=keys((0, size * 0.3), (0.15, size), (0.8, size * 0.9), (1, 0)),
+                 transparency=keys((0, 0), (0.7, 0.05), (1, 1)), rotation=[0, 360], spin=[-160, 160], emission=0.3, brightness=2.2,
+                 color=keys((0, WHITE), (1, (255, 230, 242))))
+
+
+def embers(at, frame, count, spread_r=4, **kw):
+    return petals(at, frame, count, radius=spread_r, **kw)
+
+
+def bloom_flash(at, frame, size, life=0.3, spin=160, rotation=0):
+    """A blossom opening on the blade (the old star gleam)."""
+    return {"type": "glow", "at": at, "life": life, "frame": frame, "sprite": "blossom",
+            "size": keys((0, size * 0.2), (0.35, size), (1, size * 1.15)), "transparency": keys((0, 0), (0.6, 0.1), (1, 1)),
+            "color": keys((0, WHITE), (1, (255, 226, 240))), "rotation": rotation, "spin": spin, "brightness": 2.2, "emission": 0.4}
 
 
 def flash(at, frame, sprite, size, life=0.14, color=WHITE, tint=LAVENDER, rotation=0, bright=5, **kw):
@@ -219,15 +246,15 @@ RUSH = {
         {"attach": "root", "offset": [0, -1.5, 0.5], "dir": [0, 0.4, 1], "from": 0.36, "to": 0.64, "sprite": "smoke", "flip": "4x4",
          "rate": 110, "life": [0.45, 0.8], "speed": [4, 12], "spread": 45, "drag": 3, "size": keys((0, 2.5), (1, 7)),
          "transparency": keys((0, 0.35), (1, 1)), "color": SMOKE_COLOR, "rotation": [0, 360], "spin": [-60, 60], "emission": 0.5, "brightness": 1.5},
-        {"attach": "root", "offset": [0, 0, 0.5], "dir": [0, 0.2, 1], "from": 0.36, "to": 0.66, "sprite": "glint",
-         "rate": 90, "life": [0.3, 0.6], "speed": [6, 18], "spread": 60, "drag": 3, "size": keys((0, 0.6), (1, 0)),
-         "transparency": keys((0, 0), (1, 1)), "color": keys((0, WHITE), (1, CYAN)), "rotation": [0, 360], "spin": [-200, 200], "brightness": 3},
+        {"attach": "root", "offset": [0, 0, 0.5], "dir": [0, 0.3, 1], "from": 0.36, "to": 0.66, "sprite": "petals",
+         "rate": 120, "life": [0.7, 1.3], "speed": [6, 18], "spread": 60, "drag": 2.4, "accel": [0, -3.5, 0],
+         "size": keys((0, 0.5), (0.12, 0.85), (1, 0.5)), "transparency": keys((0, 0), (0.75, 0.05), (1, 1)), **PETAL},
     ],
     "cast": [
         sound(0.04, "KatanaGather", 0.55, 1.15),
         inward(0.06, "tip", 16, 6),
         inward(0.18, "tip", 12, 4.5),
-        flash(0.29, "tip", "star", 7, life=0.18, spin=160),
+        bloom_flash(0.29, "tip", 3.6, life=0.3, spin=200),
         flash(0.3, "tip", "spike", 4.5, life=0.16, rotation=20),
         sound(0.29, "KatanaGlint", 0.5, 1.6),
         shake(0.29, attacker={"fov": -2.5, "shake": 0.1}),
@@ -242,7 +269,7 @@ RUSH = {
         sound(0.585, "KatanaSwing", 1.0, 0.75),
         # finish: a puff where the feet skid to a stop, a cold glint down the blade
         smoke(0.66, "feet", 8, 7, speed=(6, 14), spread=80),
-        flash(0.8, "tip", "star", 4, life=0.22, rotation=45, spin=-120, bright=3),
+        bloom_flash(0.8, "tip", 2.4, life=0.35, rotation=45, spin=-140),
         sound(0.82, "KatanaTail", 0.4, 1.2),
     ],
     # the dash's cut lands: a sharp contact only (the follow-up does the rest)
@@ -260,6 +287,7 @@ RUSH = {
          "alpha": keys((0, 0.25), (0.3, 0.2), (1, 1)), "color": keys((0, WHITE), (1, LAVENDER)), "alignY": True, "offset": [0, -6.5, 0], "brightness": 2},
         burst(0.0, "cut", "slash", flip="4x4", count=1, life=0.24, size=keys((0, 20), (1, 26)), transparency=keys((0, 0), (1, 1)), rotation=[-10, 10], alignX=True, brightness=3.5),
         sparks(0.0, "cut", 30, speed=(50, 120), dirv=(1, 0.15, 0), spread=30, mirror=True),
+        petals(0.0, "cut", 22, radius=1.5, speed=(14, 32)),
         light(0.0, "cut", 0.3, 8, 20),
     ],
     # a whiff still slashes the air
@@ -286,6 +314,7 @@ def blink_cut(at, angle, big=1.0):
         flash(at, "cut", "spike", 16 * big, life=0.13, rotation=angle, spin=60),
         sparks(at, "cut", 26, speed=(50, 130), spread=180, radius=1),
         smoke(at + 0.02, "cut", 5, 7, speed=(6, 14), spread=180, radius=1.5),
+        petals(at, "cut", int(18 * big), radius=1.5, speed=(14, 34)),
         shock_flat(at, "ground", 14 * big, life=0.28),
         sound(at, "KatanaSwing", 0.9, 1.3),
         sound(at, "KatanaCrack", 0.8, 1.15),
@@ -325,7 +354,8 @@ RUSH_FOLLOW = {
         sparks(BOOM + 0.03, "cut", 40, speed=(50, 130), dirv=(1, 0.15, 0), spread=35, mirror=True),
         smoke(BOOM + 0.04, "cut", 16, 13, speed=(8, 22), spread=180, radius=3),
         smoke(BOOM + 0.05, "ground", 18, 15, speed=(14, 30), spread=85),
-        embers(BOOM + 0.06, "cut", 40, 7),
+        embers(BOOM + 0.06, "cut", 70, 7, speed=(16, 40)),
+        blooms(BOOM + 0.02, "cut", 10, size=2.6),
         light(BOOM, "cut", 0.6, 14, 34),
         sound(BOOM, "KatanaBurst", 1.0, 0.7),
         sound(BOOM, "KatanaCrack", 0.9, 0.8),
@@ -371,7 +401,8 @@ def explosion(k=1.0, victim=True):
         smoke(0.1, "ground", int(12 * k) + 2, 14 * k, speed=(20, 40), spread=12, life=(1.0, 1.6)),  # the column
         sparks(0.03, "proj", int(70 * k), speed=(60, 150), radius=2.5),
         sparks(0.06, "ground", int(40 * k), speed=(30, 90), spread=70, tint=PINK),
-        embers(0.1, "proj", int(40 * k), 8 * k),
+        embers(0.1, "proj", int(70 * k), 8 * k, speed=(16, 40)),
+        blooms(0.04, "proj", int(10 * k), size=2.8 * k),
         light(0.0, "proj", 0.8, 14, 34 * k),
         # secondary pops as it burns out
         explo(0.18, "proj", 14 * k, offset=(4, -2, 3)),
@@ -424,7 +455,7 @@ CRESCENT = {
         inward(0.2, "feet", 18, 8, size=2.4, offset=(0, 1, 0)),
         inward(0.3, "tip", 14, 5),
         flash(0.34, "tip", "prism", 8, life=0.2, bright=2),
-        flash(0.36, "tip", "star", 9, life=0.2, spin=160),
+        bloom_flash(0.36, "tip", 4.4, life=0.32, spin=200),
         flash(0.36, "tip", "spike", 6, life=0.18, rotation=20),
         sound(0.35, "KatanaGlint", 0.65, 1.3),
         shake(0.35, attacker={"fov": -3, "shake": 0.15}),
@@ -433,7 +464,7 @@ CRESCENT = {
         sound(0.6, "KatanaSwing", 1.0, 0.8),
         *release(0.68, 1.25),
         smoke(0.86, "feet", 8, 8, speed=(6, 12), spread=85),
-        flash(0.9, "tip", "star", 4, life=0.22, rotation=45, spin=-120, bright=3),
+        bloom_flash(0.9, "tip", 2.4, life=0.35, rotation=45, spin=-140),
         sound(0.9, "KatanaTail", 0.4, 1.2),
     ],
     "projectile": {
@@ -457,9 +488,8 @@ CRESCENT = {
             {"sprite": "energy", "rate": 50, "life": [0.25, 0.45], "speed": [2, 6], "spread": 180,
              "size": keys((0, 7), (1, 2)), "transparency": keys((0, 0.45), (1, 1)), "color": keys((0, WHITE), (1, LAVENDER)),
              "rotation": [0, 360], "spin": [-90, 90], "brightness": 2.5},
-            {"sprite": "glint", "rate": 90, "life": [0.4, 0.8], "speed": [6, 16], "spread": 180, "drag": 2, "accel": [0, 5, 0],
-             "size": keys((0, 0.8), (1, 0)), "transparency": keys((0, 0), (1, 1)), "color": keys((0, WHITE), (1, CYAN)),
-             "rotation": [0, 360], "spin": [-200, 200], "brightness": 3},
+            {"sprite": "petals", "rate": 110, "life": [0.9, 1.6], "speed": [6, 16], "spread": 180, "drag": 2.4, "accel": [0, -3.5, 0],
+             "size": keys((0, 0.6), (0.12, 1.1), (1, 0.6)), "transparency": keys((0, 0), (0.75, 0.05), (1, 1)), **PETAL},
             {"sprite": "spark", "rate": 70, "life": [0.25, 0.5], "speed": [20, 50], "spread": 180, "drag": 4, "orientation": "velocity",
              "size": keys((0, 0.45), (1, 0)), "transparency": keys((0, 0), (1, 1)), "color": keys((0, WHITE), (1, PINK)), "squash": -1.3, "brightness": 4},
         ],

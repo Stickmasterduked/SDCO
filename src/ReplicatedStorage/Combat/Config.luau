@@ -352,6 +352,10 @@ Config.KatanaTextures = {
 	shock = "",
 	spike = "",
 	energy = "",
+	-- round 3: sakura petals (petals is a 4x4 flipbook)
+	petal = "",
+	petals = "",
+	blossom = "",
 }
 
 Config.Sounds = {
