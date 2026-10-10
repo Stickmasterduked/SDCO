@@ -142,7 +142,52 @@ CRESCENT = {
     ],
 }
 
-MOVES = [RUSH, CRESCENT]
+# Lumen Rush's follow-up (on a hit): three blink cuts from new angles around
+# the victim (the client moves the body on each Cut marker), then the
+# finishing flick that sets off the explosion on Boom.
+LEGS_LUNGE = ((-42, 12), (44, 12))
+RUSH_FOLLOW = {
+    "name": "Katana_RushFollow",
+    "length": 1.2,
+    "recover": 0.95,
+    "markers": {"Cut1": 0.12, "Cut2": 0.3, "Cut3": 0.48, "Boom": 0.64},
+    "keys": [
+        # out of the dash's finish: blade low behind on the left
+        {"t": 0.0, "torso": [-26, 52, -7, -0.08, -0.2], "legs": LEGS_LUNGE,
+         "aim": (-0.88, -0.3, 0.2), "blade": (-0.76, -0.34, 0.54), "axis": CUT_AXIS},
+        # cut 1: wrenched back to the right, then a flat cut across
+        {"t": 0.06, "torso": [-22, -52, 7, 0.1, -0.15], "legs": LEGS_LUNGE, "head": [-2, 0, -2],
+         "aim": (0.86, 0.06, 0.45), "blade": (0.6, 0.16, 0.78), "axis": CUT_AXIS},
+        {"t": 0.12, "torso": [-22, 22, -3, -0.02, -0.25], "legs": LEGS_LUNGE,
+         "aim": (-0.25, -0.1, -0.96), "blade": (-0.35, -0.1, -0.93), "axis": CUT_AXIS},
+        {"t": 0.17, "torso": [-25, 50, -7, -0.08, -0.25], "legs": LEGS_LUNGE,
+         "aim": (-0.86, -0.26, -0.4), "blade": (-0.88, -0.3, 0.1), "axis": CUT_AXIS},
+        # cut 2: dropped low on the left, a rising backhand rips across
+        {"t": 0.24, "torso": [-36, 30, -6, -0.05, -0.45], "legs": LEGS_LUNGE, "head": [4, 0, 2],
+         "aim": (-0.55, -0.62, -0.56), "blade": (-0.66, -0.66, -0.36), "axis": BACKHAND},
+        {"t": 0.3, "torso": [-20, -28, 4, 0.05, -0.3], "legs": LEGS_LUNGE,
+         "aim": (0.55, 0.32, -0.77), "blade": (0.55, 0.38, -0.74), "axis": BACKHAND},
+        {"t": 0.35, "torso": [-12, -46, 6, 0.1, -0.2], "legs": LEGS_LUNGE, "head": [-4, 0, -3],
+         "aim": (0.85, 0.48, -0.2), "blade": (0.82, 0.56, 0.12), "axis": BACKHAND},
+        # cut 3: up overhead and straight down through them
+        {"t": 0.42, "torso": [14, -6, 0, 0, 0.2], "legs": ((-30, 12), (34, 12)), "head": [-10, 0, 0],
+         "aim": (0.05, 0.98, 0.16), "blade": (0.02, 0.36, 0.93), "axis": OVERHEAD},
+        {"t": 0.48, "torso": [-34, 4, -2, 0, -0.4], "legs": ((-46, 12), (48, 12)),
+         "aim": (0.0, 0.02, -1.0), "blade": (-0.05, -0.14, -0.99), "axis": OVERHEAD},
+        {"t": 0.54, "torso": [-44, 4, 0, 0, -0.5], "legs": ((-48, 12), (50, 12)), "head": [6, 0, 0],
+         "aim": (0.02, -0.55, -0.83), "blade": (0.0, -0.84, -0.54), "axis": OVERHEAD},
+        # Boom: the blade flicked out to the side, the explosion goes off behind
+        {"t": 0.64, "torso": [-30, 42, -6, -0.06, -0.3], "legs": LEGS_LUNGE, "head": [2, 0, 2],
+         "aim": (-0.82, -0.36, 0.3), "blade": (-0.72, -0.42, 0.55), "axis": CUT_AXIS},
+        {"t": 0.9, "torso": [-26, 38, -5, -0.05, -0.26], "legs": ((-40, 12), (42, 12)), "head": [2, 0, 2],
+         "aim": (-0.8, -0.4, 0.3), "blade": (-0.7, -0.46, 0.55), "axis": CUT_AXIS},
+        {"t": 1.06, "torso": [-12, 20, 1, 0, -0.05], "legs": ((-20, 9), (22, 10)),
+         "aim": (-0.2, 0.0, -0.98), "blade": (-0.3, 0.45, -0.84), "edge": (0.05, -0.85, -0.5)},
+        {"t": 1.2, "ready": True},
+    ],
+}
+
+MOVES = [RUSH, CRESCENT, RUSH_FOLLOW]
 
 
 # ---------------------------------------------------------------------------

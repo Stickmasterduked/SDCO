@@ -1628,6 +1628,7 @@ function KatanaFX._projectileEnded() end
 -- Sessions: one playing skill clip on one body
 
 local sessions = {} -- [model] = session
+local rushHits = {} -- [attacker] = { victim, sweep, out, at }: who the dash cut (for the follow-up)
 
 local Session = {}
 Session.__index = Session
@@ -1749,6 +1750,25 @@ function Session:frames()
 			end
 			local at = floorBelow(s.root.Position, 6) or (s.root.Position - Vector3.new(0, 3, 0))
 			return CFrame.fromMatrix(at, flatUnit(s.root.CFrame.RightVector, Vector3.xAxis), Vector3.yAxis)
+		end,
+		-- the follow-up's effects sit on the victim, wherever they are now
+		cut = function()
+			local victim = s.victimRoot
+			if not victim or not victim.Parent then
+				return nil
+			end
+			local sweep = s.victimSweep or -s.root.CFrame.RightVector
+			local out = s.victimOut or flatUnit(victim.Position - s.root.Position, s.root.CFrame.LookVector)
+			return frameXY(victim.Position + Vector3.new(0, 0.5, 0), sweep, out)
+		end,
+		ground = function()
+			local victim = s.victimRoot
+			if not victim or not victim.Parent then
+				return nil
+			end
+			local at = floorBelow(victim.Position, 10) or (victim.Position - Vector3.new(0, 3, 0))
+			local x = flatUnit(s.victimSweep or s.root.CFrame.RightVector, Vector3.xAxis)
+			return CFrame.fromMatrix(at, x, Vector3.yAxis)
 		end,
 		release = function()
 			local _, tip = s:bladePoints()
@@ -2039,6 +2059,28 @@ function KatanaFX.begin(model, track, clipName)
 			table.insert(self.emitters, { look = look, emitter = emitter, holder = holder })
 		end
 	end
+	if clipName == "Katana_RushFollow" then
+		-- the victim: whoever the dash just cut (else the nearest body)
+		local hit = rushHits[model]
+		local victim = hit and os.clock() - hit.at < 3 and hit.victim
+		if not victim or not victim.Parent then
+			local best
+			for _, other in ipairs(game:GetService("CollectionService"):GetTagged("Combatant")) do
+				local r = other ~= model and other:FindFirstChild("HumanoidRootPart")
+				if r then
+					local d = (r.Position - root.Position).Magnitude
+					if d < 14 and (not best or d < best) then
+						victim, best = other, d
+					end
+				end
+			end
+		end
+		self.victim = victim
+		self.victimRoot = victim and victim:FindFirstChild("HumanoidRootPart")
+		if hit then
+			self.victimSweep, self.victimOut = hit.sweep, hit.out
+		end
+	end
 	if clipName == "Katana_Crescent" then
 		self.releases = (Config.Attacks.KatanaCrescent and Config.Attacks.KatanaCrescent.releases) or { { marker = "Hit", tilt = 0 } }
 		self.released = {}
@@ -2046,7 +2088,7 @@ function KatanaFX.begin(model, track, clipName)
 	sessions[model] = self
 
 	-- the cast timeline runs on the clip's own clock
-	local ctx = { frames = self:frames(), attacker = model, session = self, attackerRoot = root }
+	local ctx = { frames = self:frames(), attacker = model, defender = self.victim, session = self, attackerRoot = root }
 	playLayers(spec.cast, ctx, function()
 		if self.ended then
 			return nil
@@ -2132,6 +2174,9 @@ function KatanaFX.impact(kind, position, attacker, defender, info)
 		local floor = floorBelow(position, 10) or (position - Vector3.new(0, 3.5, 0))
 		local ground = CFrame.fromMatrix(floor, flatUnit(frame.XVector), Vector3.yAxis)
 		local layers = clean and spec.impact or spec.whiff
+		if clean and typeof(attacker) == "Instance" and typeof(defender) == "Instance" then
+			rushHits[attacker] = { victim = defender, sweep = frame.XVector, out = frame.YVector, at = os.clock() }
+		end
 		local ctx = {
 			frames = {
 				cut = function()

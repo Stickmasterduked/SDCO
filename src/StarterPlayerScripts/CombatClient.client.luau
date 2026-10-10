@@ -1045,6 +1045,8 @@ end
 
 -- Where this cast's dash started (the hit is anyone the path passed).
 local rushPath = nil
+-- Who the last dash cut (the follow-up cuts blink around them).
+local rushVictim = nil
 
 local function clientHit(kind, attackId, token)
 	if token ~= attackToken then
@@ -1088,6 +1090,9 @@ local function clientHit(kind, attackId, token)
 	end
 	if not target or hasIFrames(target) then
 		return
+	end
+	if attack.rush then
+		rushVictim = { model = target, at = os.clock() }
 	end
 	Remotes.Action:FireServer("Hit", nil, { id = attackId, target = target })
 
@@ -1995,6 +2000,69 @@ local function armRush(token)
 		connection:Disconnect()
 	end)
 end
+
+-- The dash's cut landed: the server plays Katana_RushFollow, and our own
+-- body blinks around the victim for each of its three extra cuts (the
+-- server checks nothing about where we stand; the cuts are its own).
+local function followRush(character)
+	local S = Config.KatanaSkills.KatanaRush
+	local clip = AnimationData.Katana_RushFollow
+	local track = getTrack(character, "Katana_RushFollow")
+	local _, _, root = getCharacter()
+	if not clip or not track or not root then
+		return
+	end
+	local victim = rushVictim and os.clock() - rushVictim.at < 3 and rushVictim.model
+	if not victim or not victim.Parent then
+		victim = nil
+		local best = 14
+		for _, model in ipairs(CollectionService:GetTagged("Combatant")) do
+			local other = model ~= character and model:FindFirstChild("HumanoidRootPart")
+			if other and (other.Position - root.Position).Magnitude < best then
+				victim, best = model, (other.Position - root.Position).Magnitude
+			end
+		end
+	end
+	rushVictim = nil
+	local t = os.clock()
+	predicted.attacking = true
+	predicted.busyUntil = math.max(predicted.busyUntil, t + clip.recover)
+	predicted.lockFacingUntil = t + clip.recover
+	bufferedSkill = nil
+	Motion.stop(root)
+	local victimRoot = victim and victim:FindFirstChild("HumanoidRootPart")
+	if not victimRoot then
+		return
+	end
+	ghostThrough(clip.recover)
+	local connections = {}
+	for i, marker in ipairs({ "Cut1", "Cut2", "Cut3" }) do
+		table.insert(connections, track:GetMarkerReachedSignal(marker):Connect(function()
+			local _, _, body = getCharacter()
+			if not body or not victimRoot.Parent or character:GetAttribute("CombatState") ~= "Attacking" then
+				return
+			end
+			local centre = victimRoot.Position
+			local around = (body.Position - centre) * FLAT
+			around = around.Magnitude > 0.1 and around.Unit or -victimRoot.CFrame.LookVector * FLAT
+			local direction = CFrame.Angles(0, math.rad(S.blinkAngles[i] or 0), 0):VectorToWorldSpace(around.Unit)
+			local at = Vector3.new(centre.X, body.Position.Y, centre.Z) + direction * S.blinkRadius
+			body.CFrame = CFrame.lookAt(at, Vector3.new(centre.X, at.Y, centre.Z))
+			body.AssemblyLinearVelocity = Vector3.zero
+		end))
+	end
+	task.delay(clip.recover + 0.5, function()
+		for _, connection in ipairs(connections) do
+			connection:Disconnect()
+		end
+	end)
+end
+
+Remotes.Anim.OnClientEvent:Connect(function(model, name, stop)
+	if not stop and name == "Katana_RushFollow" and model == player.Character then
+		followRush(model)
+	end
+end)
 
 local function doKatanaSkill(kind)
 	local character = getCharacter()

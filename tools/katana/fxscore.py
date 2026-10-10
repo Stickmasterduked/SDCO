@@ -245,56 +245,22 @@ RUSH = {
         flash(0.8, "tip", "star", 4, life=0.22, rotation=45, spin=-120, bright=3),
         sound(0.82, "KatanaTail", 0.4, 1.2),
     ],
+    # the dash's cut lands: a sharp contact only (the follow-up does the rest)
     "impact": [
-        # the cut lands: flash, the big crescent, the first slash
-        flash(0.0, "cut", "core", 12, life=0.09, bright=6),
-        flash(0.0, "cut", "star", 34, life=0.13, tint=PEACH, alignX=True),
-        flash(0.0, "cut", "spike", 26, life=0.16, rotation=15, spin=90),
+        flash(0.0, "cut", "core", 10, life=0.08, bright=6),
+        flash(0.0, "cut", "star", 28, life=0.12, tint=PEACH, alignX=True),
         sound(0.0, "KatanaCrack", 1.0, 1.0),
-        sound(0.0, "KatanaBurst", 0.9, 1.1),
-        shake(0.0, attacker={"shake": 0.55, "punch": [1, 0, 0, 0.8], "fov": -7, "impact": 0.6, "flash": 0.25, "blur": 6},
-              victim={"shake": 0.85, "punch": [1, 0, 0, 1.2], "fov": 9, "impact": 0.7, "flash": 0.35, "roll": 7},
-              near={"shake": 0.5}, radius=70),
-        {"type": "stroke", "at": 0.0, "life": 0.36, "frame": "cut", "shape": "arc", **RUSH_ARC, "billboard": 0.45,
+        shake(0.0, attacker={"shake": 0.45, "punch": [1, 0, 0, 0.6], "fov": -5, "impact": 0.4},
+              victim={"shake": 0.6, "punch": [1, 0, 0, 0.9], "fov": 6, "impact": 0.5, "roll": 5}, near={"shake": 0.3}, radius=60),
+        {"type": "stroke", "at": 0.0, "life": 0.3, "frame": "cut", "shape": "arc", **RUSH_ARC, "billboard": 0.45,
          "reveal": keys((0, 0.05), (0.12, 1)), "erase": keys((0, 0), (0.45, 0), (1, 1)),
-         "width": 5.0, "taper": [1.4, 0.9], "widthScale": keys((0, 0.7), (0.2, 1.0), (1, 0.6)), "radiusScale": keys((0, 0.96), (1, 1.08)),
+         "width": 4.2, "taper": [1.4, 0.9], "widthScale": keys((0, 0.7), (0.2, 1.0), (1, 0.6)), "radiusScale": keys((0, 0.96), (1, 1.08)),
          "alpha": keys((0, 1), (0.55, 0.85), (1, 0)), "skins": [THICK_EDGE, EDGE_SOFT, BODY, SPILL], "segments": 24},
-        {"type": "sprite", "at": 0.0, "life": 0.26, "frame": "cut", "sprite": "crescent", "size": keys((0, 26), (0.2, 30), (1, 34)),
-         "alpha": keys((0, 0.2), (0.3, 0.15), (1, 1)), "color": keys((0, WHITE), (1, LAVENDER)), "alignY": True, "offset": [0, -7, 0], "brightness": 2},
-        # the flurry: the cuts keep landing
-        {"type": "flurry", "at": 0.03, "frame": "cut", "count": 9, "every": 0.04, "sprite": "slash", "size": [13, 24], "life": 0.22,
-         "spread": 2.6, "sparks": 8, "shake": 0.22, "brightness": 3.5, "tint": CYAN},
-        # the eruption
-        explo(0.03, "cut", 22),
-        explo(0.07, "cut", 14, offset=(-7, 1, 0)),
-        explo(0.1, "cut", 14, offset=(7, -1, 0)),
-        flash(0.04, "cut", "burst", 34, life=0.2, rotation=12, spin=50, bright=4),
-        flash(0.05, "cut", "prism", 30, life=0.4, bright=2.4),
-        shock_cam(0.05, "cut", 30, life=0.3),
-        shock_flat(0.06, "ground", 44, life=0.5),
-        shock_flat(0.14, "ground", 28, life=0.4, color=CYAN),
-        sparks(0.04, "cut", 50, speed=(50, 130), dirv=(1, 0.15, 0), spread=35, mirror=True),
-        sparks(0.07, "cut", 30, speed=(30, 80), radius=2),
-        embers(0.08, "cut", 30, 5),
-        smoke(0.08, "cut", 16, 13, speed=(8, 22), spread=180, radius=3),
-        smoke(0.1, "ground", 14, 11, speed=(10, 24), spread=85),
-        light(0.0, "cut", 0.6, 12, 26),
-        # the finisher pop when the flurry ends: everything blows outward
-        explo(0.4, "cut", 28, life=(0.55, 0.7)),
-        flash(0.4, "cut", "spike", 36, life=0.18, rotation=-10, spin=-80),
-        flash(0.4, "cut", "core", 14, life=0.1, bright=6),
-        shock_cam(0.41, "cut", 36, life=0.36),
-        shock_flat(0.42, "ground", 60, life=0.6),
-        sparks(0.41, "cut", 60, speed=(60, 150), radius=2),
-        smoke(0.43, "ground", 18, 16, speed=(14, 30), spread=85),
-        embers(0.45, "cut", 40, 7),
-        light(0.4, "cut", 0.6, 14, 34),
-        sound(0.4, "KatanaBurst", 1.0, 0.7),
-        sound(0.4, "KatanaCrack", 0.9, 0.8),
-        shake(0.4, attacker={"shake": 0.8, "fov": -5, "impact": 0.5, "flash": 0.2},
-              victim={"shake": 0.95, "punch": [0, 1, 0, 1.3], "fov": 10, "impact": 0.6, "flash": 0.3},
-              near={"shake": 0.65}, radius=90),
-        sound(0.7, "KatanaTail", 0.6, 0.85),
+        {"type": "sprite", "at": 0.0, "life": 0.24, "frame": "cut", "sprite": "crescent", "size": keys((0, 24), (0.2, 27), (1, 30)),
+         "alpha": keys((0, 0.25), (0.3, 0.2), (1, 1)), "color": keys((0, WHITE), (1, LAVENDER)), "alignY": True, "offset": [0, -6.5, 0], "brightness": 2},
+        burst(0.0, "cut", "slash", flip="4x4", count=1, life=0.24, size=keys((0, 20), (1, 26)), transparency=keys((0, 0), (1, 1)), rotation=[-10, 10], alignX=True, brightness=3.5),
+        sparks(0.0, "cut", 30, speed=(50, 120), dirv=(1, 0.15, 0), spread=30, mirror=True),
+        light(0.0, "cut", 0.3, 8, 20),
     ],
     # a whiff still slashes the air
     "whiff": [
@@ -305,6 +271,68 @@ RUSH = {
         burst(0.0, "cut", "slash", flip="4x4", count=2, life=0.22, size=keys((0, 16), (1, 22)), transparency=keys((0, 0), (1, 1)), rotation=[-20, 20], alignX=True, brightness=3),
         smoke(0.05, "cut", 8, 9, speed=(6, 14), spread=180, radius=2),
         sparks(0.02, "cut", 20, speed=(40, 90), dirv=(1, 0, 0), spread=30, mirror=True),
+    ],
+}
+
+# Lumen Rush's follow-up (only after the dash's cut lands): three blink cuts
+# on the victim, then the explosion that launches them.
+def blink_cut(at, angle, big=1.0):
+    return [
+        burst(at, "cut", "slash", flip="4x4", count=1, life=0.24, size=keys((0, 22 * big), (1, 30 * big)),
+              transparency=keys((0, 0), (0.7, 0.1), (1, 1)), rotation=[angle, angle], brightness=3.5, zoffset=2),
+        burst(at, "cut", "slash", flip="4x4", count=1, life=0.2, size=keys((0, 14 * big), (1, 18 * big)),
+              transparency=keys((0, 0.2), (1, 1)), color=CYAN, rotation=[angle + 90, angle + 90], brightness=2.5, zoffset=1),
+        flash(at, "cut", "core", 8 * big, life=0.08, bright=6),
+        flash(at, "cut", "spike", 16 * big, life=0.13, rotation=angle, spin=60),
+        sparks(at, "cut", 26, speed=(50, 130), spread=180, radius=1),
+        smoke(at + 0.02, "cut", 5, 7, speed=(6, 14), spread=180, radius=1.5),
+        shock_flat(at, "ground", 14 * big, life=0.28),
+        sound(at, "KatanaSwing", 0.9, 1.3),
+        sound(at, "KatanaCrack", 0.8, 1.15),
+        light(at, "cut", 0.18, 6, 16),
+        shake(at, attacker={"shake": 0.32, "punch": [1, 0, 0, 0.4], "impact": 0.25},
+              victim={"shake": 0.45, "punch": [-1, 0.3, 0, 0.6], "impact": 0.3}, near={"shake": 0.2}, radius=50),
+    ]
+
+
+BOOM = 0.64
+RUSH_FOLLOW = {
+    "blade": {
+        "glow": keys((0, 1.2), (0.12, 1.7), (0.3, 1.7), (0.48, 1.8), (0.64, 1.9), (0.9, 1.0), (1.2, 0.35)),
+        "halo": keys((0, 1.0), (0.48, 1.4), (0.64, 1.6), (1.2, 0.9)),
+        "light": keys((0, 2.0), (0.48, 4.0), (0.64, 5.0), (1.0, 1.0), (1.2, 0.0)),
+    },
+    "trails": [[0.03, 0.56, 0.16]],
+    "afterimages": {"from": 0.0, "to": 0.5, "every": 0.06, "life": 0.2, "alpha": 0.45, "color": LAVENDER},
+    "cast": [
+        *blink_cut(0.12, 10),
+        *blink_cut(0.3, -55),
+        *blink_cut(0.48, 90, 1.15),
+        # Boom: everything blows outward from the victim
+        explo(BOOM, "cut", 22),
+        explo(BOOM + 0.04, "cut", 14, offset=(-7, 1, 0)),
+        explo(BOOM + 0.07, "cut", 14, offset=(7, -1, 0)),
+        explo(BOOM + 0.06, "ground", 18, offset=(0, 1.5, 0)),
+        flash(BOOM, "cut", "core", 14, life=0.1, bright=6),
+        flash(BOOM, "cut", "star", 34, life=0.14, tint=PEACH, alignX=True),
+        flash(BOOM, "cut", "spike", 32, life=0.18, rotation=-10, spin=-80),
+        flash(BOOM + 0.02, "cut", "burst", 34, life=0.2, rotation=12, spin=50, bright=4),
+        flash(BOOM + 0.03, "cut", "prism", 30, life=0.4, bright=2.4),
+        shock_cam(BOOM + 0.02, "cut", 32, life=0.32),
+        shock_flat(BOOM + 0.03, "ground", 56, life=0.55),
+        shock_flat(BOOM + 0.12, "ground", 34, life=0.45, color=CYAN),
+        sparks(BOOM + 0.01, "cut", 60, speed=(60, 150), radius=2),
+        sparks(BOOM + 0.03, "cut", 40, speed=(50, 130), dirv=(1, 0.15, 0), spread=35, mirror=True),
+        smoke(BOOM + 0.04, "cut", 16, 13, speed=(8, 22), spread=180, radius=3),
+        smoke(BOOM + 0.05, "ground", 18, 15, speed=(14, 30), spread=85),
+        embers(BOOM + 0.06, "cut", 40, 7),
+        light(BOOM, "cut", 0.6, 14, 34),
+        sound(BOOM, "KatanaBurst", 1.0, 0.7),
+        sound(BOOM, "KatanaCrack", 0.9, 0.8),
+        sound(BOOM + 0.3, "KatanaTail", 0.6, 0.85),
+        shake(BOOM, attacker={"shake": 0.8, "fov": -5, "impact": 0.5, "flash": 0.2},
+              victim={"shake": 0.95, "punch": [0, 1, 0, 1.3], "fov": 10, "impact": 0.6, "flash": 0.3},
+              near={"shake": 0.65}, radius=90),
     ],
 }
 
@@ -444,7 +472,7 @@ CRESCENT = {
     "dissolve": explosion(0.65, False),
 }
 
-SCORE = {"Katana_Rush": RUSH, "Katana_Crescent": CRESCENT}
+SCORE = {"Katana_Rush": RUSH, "Katana_Crescent": CRESCENT, "Katana_RushFollow": RUSH_FOLLOW}
 
 
 def _normalise():

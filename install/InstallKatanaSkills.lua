@@ -1,4 +1,4 @@
--- Katana skills installer (Z: Lumen Rush, X: Moonfall Crescent).
+-- Katana skills update (Z: 4-cut Lumen Rush, X: Moonfall Crescent blasts).
 -- Paste this whole file into Studio's command bar (View > Command Bar) and
 -- press Enter. It updates the combat scripts this feature touches, adds the
 -- KatanaFX and KatanaSkillAnimations modules, and is a single undo step
@@ -239,9 +239,11 @@ Config.Attacks = {
 	-- attacker's client at the clip's Hit marker like any strike; claimSlack
 	-- widens the server's check because the dash outruns its view of you.
 	KatanaRush = {
-		anim = "Katana_Rush", damage = 14, posture = 35, hitstun = 1.05, walkSpeed = 0,
-		range = 8.5, width = 9, height = 7, knockback = 78, launch = 32,
-		react = "Knockback", heavy = true, feintable = false, katanaSkill = true,
+		anim = "Katana_Rush", damage = 14, posture = 35, hitstun = 1.0, walkSpeed = 0,
+		range = 8.5, width = 9, height = 7, knockback = 0, launch = 0,
+		-- the dash's cut holds them for the follow-up (CombatService.rushFollow
+		-- launches them on its final explosion)
+		react = "HitFront", heavy = true, feintable = false, katanaSkill = true,
 		cooldown = 12, readyField = "rushReadyAt", claimSlack = 14,
 		-- the dash cuts THROUGH them: the hit is anyone the dash path passed
 		rush = true,
@@ -324,12 +326,21 @@ Config.KatanaSkills = {
 		targetRange = 30, -- picks the opponent you're facing within this ...
 		targetAngle = 40, -- ... and this many degrees of your aim
 		hitStop = 0.2,
+		-- damage is a share of the victim's max health: 15% in all
+		cutFraction = 0.025, -- the dash's cut, and each of the 3 follow-up cuts
+		boomFraction = 0.05, -- the explosion that ends it
+		blinkRadius = 4.2, -- the follow-up cuts come from around them at this distance
+		blinkAngles = { 75, 205, 320 }, -- degrees around the victim, from where you stand
+		staggerOnMiss = 2, -- a whiffed Z leaves you guard-broken this long
 	},
 	KatanaCrescent = {
 		key = "X",
 		speed = 92, -- studs/s
 		range = 72,
 		hitStop = 0.16, -- the victim only; the caster is far away
+		damageFraction = 0.04, -- every explosion that hits: a share of the victim's max health
+		blastRadius = 11, -- each crescent's explosion catches everyone this close
+		carryTime = 0.22, -- a crescent that hits drives on this long, then explodes
 	},
 }
 
@@ -4484,6 +4495,27 @@ return {
 			{ t = 1.32, pose = { Torso = { -6, 14, 2.8, 0, -0.22, 0 }, RightLeg = { 26.38, 0, 5.76 }, LeftLeg = { -7.7, 0, -8.92 }, RightArm = { 70.25, -0.29, -51.84, 0, 0.02, 0.014 }, LeftArm = { 46.16, -11.22, 72.88, 0.076, -0.053, -0.033 }, Katana = { -12.62, -29.48, 56.98 }, Head = { 2.1, -6.3, 0.28 } } },
 		},
 	},
+	Katana_RushFollow = {
+		length = 1.2,
+		recover = 0.95,
+		markers = { Cut1 = 0.12, Cut2 = 0.3, Cut3 = 0.48, Boom = 0.64 },
+		keys = {
+			{ t = 0.0, pose = { Torso = { -26, 52, -7, -0.08, -0.666, -0.2 }, RightLeg = { -107.44, -65.06, -59.52 }, LeftLeg = { 73.93, -4.77, 28.63 }, RightArm = { 52.87, -6.6, -55.31, 0, 0, 0 }, LeftArm = { 128.31, 2.58, 83.3, 0.49, -0.55, -0.24 }, Katana = { -110.41, -12.31, -32.41 }, Head = { 15.6, -40.56, 4.9 } } },
+			{ t = 0.06, pose = { Torso = { -22, -52, 7, 0.1, -0.765, -0.15 }, RightLeg = { -14.87, 33.9, 31.31 }, LeftLeg = { 97.13, -2.15, -72.76 }, RightArm = { 156.67, -28.28, 71.31, 0, 0, 0 }, LeftArm = { 103.79, 8.71, 94.5, 0.72, -0.39, -0.1 }, Katana = { -64.14, -31.31, -52.86 }, Head = { 11.2, 40.56, -6.9 } } },
+			{ t = 0.12, pose = { Torso = { -22, 22, -3, -0.02, -0.647, -0.25 }, RightLeg = { -48.4, -49.96, 6.65 }, LeftLeg = { 66.51, -0.62, -1.39 }, RightArm = { 112.98, -50.1, -11.9, 0, 0, 0 }, LeftArm = { 14.95, -0.35, 105.44, 0.62, 0.35, -0.51 }, Katana = { -95.52, -18.05, -5.71 }, Head = { 13.2, -17.16, 2.1 } } },
+			{ t = 0.17, pose = { Torso = { -25, 50, -7, -0.08, -0.676, -0.25 }, RightLeg = { -103.93, -64.83, -54.69 }, LeftLeg = { 72.88, -4.97, 26.57 }, RightArm = { 74.18, -44.2, -35.94, 0, 0, 0 }, LeftArm = { -18.66, -3.32, 103.99, 0.56, 0.35, -0.88 }, Katana = { -121.57, -16.41, -8.43 }, Head = { 15, -39, 4.9 } } },
+			{ t = 0.24, pose = { Torso = { -36, 30, -6, -0.05, -0.817, -0.45 }, RightLeg = { -48.46, -65.93, -1.19 }, LeftLeg = { 79.29, 6.06, 7.92 }, RightArm = { 78.1, -29.58, -24.28, 0, 0, 0 }, LeftArm = { -18.43, -4.03, 97.94, 0.64, 0.25, -0.82 }, Katana = { -103.75, -18, 125.9 }, Head = { 25.6, -23.4, 6.2 } } },
+			{ t = 0.3, pose = { Torso = { -20, -28, 4, 0.05, -0.543, -0.3 }, RightLeg = { -17.72, 9.92, 28.55 }, LeftLeg = { 81.44, 6.3, -51.07 }, RightArm = { 167.61, -70.42, 23.83, 0, 0, 0 }, LeftArm = { 32.43, 4.85, 105.49, 0.62, 0.3, -0.37 }, Katana = { -87.47, -18.01, 214.31 }, Head = { 12, 21.84, -2.8 } } },
+			{ t = 0.35, pose = { Torso = { -12, -46, 6, 0.1, -0.537, -0.2 }, RightLeg = { -25.69, 26.05, 38.48 }, LeftLeg = { 80.85, 11.12, -69.02 }, RightArm = { 217.04, -54.92, 71.62, 0, 0, 0 }, LeftArm = { 25.4, 3.93, 104.7, 0.61, 0.33, -0.44 }, Katana = { -72.4, -12.04, 243.69 }, Head = { 3.2, 35.88, -7.2 } } },
+			{ t = 0.42, pose = { Torso = { 14, -6, 0, 0, -0.243, 0.2 }, RightLeg = { -49.44, -16.34, 32.34 }, LeftLeg = { 21.22, 10.8, -26.25 }, RightArm = { 176.05, -23.97, -18.44, 0, 0, 0 }, LeftArm = { 155.09, 15.91, 63.94, 0.89, -0.19, -0.46 }, Katana = { -34.89, 4.1, 384.7 }, Head = { -18.4, 4.68, 0 } } },
+			{ t = 0.48, pose = { Torso = { -34, 4, -2, 0, -0.712, -0.4 }, RightLeg = { -20.85, -31.05, 23.54 }, LeftLeg = { 82.42, 7.38, -17.92 }, RightArm = { 125.55, -7.06, -18.91, 0, 0, 0 }, LeftArm = { 25.1, 2.06, 113.2, 0.6, 0.44, -0.4 }, Katana = { -100.17, -19.67, 367.23 }, Head = { 20.4, -3.12, 1.4 } } },
+			{ t = 0.54, pose = { Torso = { -44, 4, 0, 0, -0.852, -0.5 }, RightLeg = { -12.29, -30.4, 21.65 }, LeftLeg = { 94.41, 6.57, -17.85 }, RightArm = { 100.89, -4.29, -15.94, 0, 0, 0 }, LeftArm = { -12.08, -7.37, 109.32, 0.57, 0.46, -0.79 }, Katana = { -115.39, -20.15, 356.22 }, Head = { 32.4, -3.12, 0 } } },
+			{ t = 0.64, pose = { Torso = { -30, 42, -6, -0.06, -0.718, -0.3 }, RightLeg = { -82.55, -67.95, -34.19 }, LeftLeg = { 75.11, -0.16, 19.27 }, RightArm = { 50.15, 8.58, -61.89, 0, 0, 0 }, LeftArm = { 113.33, 2.52, 88.28, 0.28, -0.47, -0.07 }, Katana = { -105.87, -15.6, 326.63 }, Head = { 20, -32.76, 6.2 } } },
+			{ t = 0.9, pose = { Torso = { -26, 38, -5, -0.05, -0.749, -0.26 }, RightLeg = { -79.7, -64.47, -26.91 }, LeftLeg = { 70.07, -3.84, 14.16 }, RightArm = { 48.59, 11.88, -65.19, 0, 0, 0 }, LeftArm = { 105.87, 1.95, 89.74, 0.24, -0.41, -0.03 }, Katana = { -105.41, -14.76, 324.3 }, Head = { 17.6, -29.64, 5.5 } } },
+			{ t = 1.06, pose = { Torso = { -12, 20, 1, 0, -0.132, -0.05 }, RightLeg = { -24.85, -36.55, 18.52 }, LeftLeg = { 35.26, -10.07, -12.71 }, RightArm = { 99.57, 14.56, -12.52, 0, 0, 0 }, LeftArm = { 37.85, 3.33, 94.64, 0.65, 0.12, -0.36 }, Katana = { -60.86, -16.65, 368.67 }, Head = { 7.2, -15.6, -0.7 } } },
+			{ t = 1.2, pose = { Torso = { -6, 14, 2.8, 0, -0.22, 0 }, RightLeg = { 26.38, 0, 5.76 }, LeftLeg = { -7.7, 0, -8.92 }, RightArm = { 70.25, -0.29, -51.84, 0, 0.02, 0.014 }, LeftArm = { 46.16, -11.22, 72.88, 0.076, -0.053, -0.033 }, Katana = { -12.62, -29.48, 416.98 }, Head = { 2.1, -6.3, 0.28 } } },
+		},
+	},
 }
 ]===]
 
@@ -6118,6 +6150,7 @@ function KatanaFX._projectileEnded() end
 -- Sessions: one playing skill clip on one body
 
 local sessions = {} -- [model] = session
+local rushHits = {} -- [attacker] = { victim, sweep, out, at }: who the dash cut (for the follow-up)
 
 local Session = {}
 Session.__index = Session
@@ -6239,6 +6272,25 @@ function Session:frames()
 			end
 			local at = floorBelow(s.root.Position, 6) or (s.root.Position - Vector3.new(0, 3, 0))
 			return CFrame.fromMatrix(at, flatUnit(s.root.CFrame.RightVector, Vector3.xAxis), Vector3.yAxis)
+		end,
+		-- the follow-up's effects sit on the victim, wherever they are now
+		cut = function()
+			local victim = s.victimRoot
+			if not victim or not victim.Parent then
+				return nil
+			end
+			local sweep = s.victimSweep or -s.root.CFrame.RightVector
+			local out = s.victimOut or flatUnit(victim.Position - s.root.Position, s.root.CFrame.LookVector)
+			return frameXY(victim.Position + Vector3.new(0, 0.5, 0), sweep, out)
+		end,
+		ground = function()
+			local victim = s.victimRoot
+			if not victim or not victim.Parent then
+				return nil
+			end
+			local at = floorBelow(victim.Position, 10) or (victim.Position - Vector3.new(0, 3, 0))
+			local x = flatUnit(s.victimSweep or s.root.CFrame.RightVector, Vector3.xAxis)
+			return CFrame.fromMatrix(at, x, Vector3.yAxis)
 		end,
 		release = function()
 			local _, tip = s:bladePoints()
@@ -6529,6 +6581,28 @@ function KatanaFX.begin(model, track, clipName)
 			table.insert(self.emitters, { look = look, emitter = emitter, holder = holder })
 		end
 	end
+	if clipName == "Katana_RushFollow" then
+		-- the victim: whoever the dash just cut (else the nearest body)
+		local hit = rushHits[model]
+		local victim = hit and os.clock() - hit.at < 3 and hit.victim
+		if not victim or not victim.Parent then
+			local best
+			for _, other in ipairs(game:GetService("CollectionService"):GetTagged("Combatant")) do
+				local r = other ~= model and other:FindFirstChild("HumanoidRootPart")
+				if r then
+					local d = (r.Position - root.Position).Magnitude
+					if d < 14 and (not best or d < best) then
+						victim, best = other, d
+					end
+				end
+			end
+		end
+		self.victim = victim
+		self.victimRoot = victim and victim:FindFirstChild("HumanoidRootPart")
+		if hit then
+			self.victimSweep, self.victimOut = hit.sweep, hit.out
+		end
+	end
 	if clipName == "Katana_Crescent" then
 		self.releases = (Config.Attacks.KatanaCrescent and Config.Attacks.KatanaCrescent.releases) or { { marker = "Hit", tilt = 0 } }
 		self.released = {}
@@ -6536,7 +6610,7 @@ function KatanaFX.begin(model, track, clipName)
 	sessions[model] = self
 
 	-- the cast timeline runs on the clip's own clock
-	local ctx = { frames = self:frames(), attacker = model, session = self, attackerRoot = root }
+	local ctx = { frames = self:frames(), attacker = model, defender = self.victim, session = self, attackerRoot = root }
 	playLayers(spec.cast, ctx, function()
 		if self.ended then
 			return nil
@@ -6622,6 +6696,9 @@ function KatanaFX.impact(kind, position, attacker, defender, info)
 		local floor = floorBelow(position, 10) or (position - Vector3.new(0, 3.5, 0))
 		local ground = CFrame.fromMatrix(floor, flatUnit(frame.XVector), Vector3.yAxis)
 		local layers = clean and spec.impact or spec.whiff
+		if clean and typeof(attacker) == "Instance" and typeof(defender) == "Instance" then
+			rushHits[attacker] = { victim = defender, sweep = frame.XVector, out = frame.YVector, at = os.clock() }
+		end
 		local ctx = {
 			frames = {
 				cut = function()
@@ -7273,13 +7350,13 @@ return {
 			{
 				type = "glow",
 				at = 0,
-				life = 0.09,
+				life = 0.08,
 				frame = "cut",
 				sprite = "core",
 				size = {
-					{ 0, 4.8 },
-					{ 0.3, 12 },
-					{ 1, 6 },
+					{ 0, 4 },
+					{ 0.3, 10 },
+					{ 1, 5 },
 				},
 				transparency = {
 					{ 0, 0 },
@@ -7302,13 +7379,13 @@ return {
 			{
 				type = "glow",
 				at = 0,
-				life = 0.13,
+				life = 0.12,
 				frame = "cut",
 				sprite = "star",
 				size = {
-					{ 0, 13.6 },
-					{ 0.3, 34 },
-					{ 1, 17 },
+					{ 0, 11.2 },
+					{ 0.3, 28 },
+					{ 1, 14 },
 				},
 				transparency = {
 					{ 0, 0 },
@@ -7330,36 +7407,6 @@ return {
 				alignX = true,
 			},
 			{
-				type = "glow",
-				at = 0,
-				life = 0.16,
-				frame = "cut",
-				sprite = "spike",
-				size = {
-					{ 0, 10.4 },
-					{ 0.3, 26 },
-					{ 1, 13 },
-				},
-				transparency = {
-					{ 0, 0 },
-					{ 0.35, 0.05 },
-					{ 1, 1 },
-				},
-				color = {
-					{
-						0,
-						{ 255, 255, 255 },
-					},
-					{
-						1,
-						{ 200, 176, 255 },
-					},
-				},
-				rotation = 15,
-				brightness = 5,
-				spin = 90,
-			},
-			{
 				type = "sound",
 				at = 0,
 				name = "KatanaCrack",
@@ -7367,40 +7414,30 @@ return {
 				pitch = 1,
 			},
 			{
-				type = "sound",
-				at = 0,
-				name = "KatanaBurst",
-				volume = 0.9,
-				pitch = 1.1,
-			},
-			{
 				type = "camera",
 				at = 0,
 				attacker = {
-					shake = 0.55,
-					punch = { 1, 0, 0, 0.8 },
-					fov = -7,
-					impact = 0.6,
-					flash = 0.25,
-					blur = 6,
+					shake = 0.45,
+					punch = { 1, 0, 0, 0.6 },
+					fov = -5,
+					impact = 0.4,
 				},
 				victim = {
-					shake = 0.85,
-					punch = { 1, 0, 0, 1.2 },
-					fov = 9,
-					impact = 0.7,
-					flash = 0.35,
-					roll = 7,
+					shake = 0.6,
+					punch = { 1, 0, 0, 0.9 },
+					fov = 6,
+					impact = 0.5,
+					roll = 5,
 				},
 				near = {
-					shake = 0.5,
-					radius = 70,
+					shake = 0.3,
+					radius = 60,
 				},
 			},
 			{
 				type = "stroke",
 				at = 0,
-				life = 0.36,
+				life = 0.3,
 				frame = "cut",
 				shape = "arc",
 				radius = 14,
@@ -7415,7 +7452,7 @@ return {
 					{ 0.45, 0 },
 					{ 1, 1 },
 				},
-				width = 5,
+				width = 4.2,
 				taper = { 1.4, 0.9 },
 				widthScale = {
 					{ 0, 0.7 },
@@ -7468,13 +7505,13 @@ return {
 			{
 				type = "sprite",
 				at = 0,
-				life = 0.26,
+				life = 0.24,
 				frame = "cut",
 				sprite = "crescent",
 				size = {
-					{ 0, 26 },
-					{ 0.2, 30 },
-					{ 1, 34 },
+					{ 0, 24 },
+					{ 0.2, 27 },
+					{ 1, 30 },
 				},
 				color = {
 					{
@@ -7487,293 +7524,44 @@ return {
 					},
 				},
 				alignY = true,
-				offset = { 0, -7, 0 },
+				offset = { 0, -6.5, 0 },
 				brightness = 2,
 				transparency = {
-					{ 0, 0.2 },
-					{ 0.3, 0.15 },
+					{ 0, 0.25 },
+					{ 0.3, 0.2 },
 					{ 1, 1 },
 				},
 			},
 			{
-				type = "flurry",
-				at = 0.03,
+				type = "burst",
+				at = 0,
 				frame = "cut",
-				count = 9,
-				every = 0.04,
 				sprite = "slash",
-				size = { 13, 24 },
-				life = 0.22,
-				spread = 2.6,
-				sparks = 8,
-				shake = 0.22,
+				flip = "4x4",
+				count = 1,
+				life = 0.24,
+				size = {
+					{ 0, 20 },
+					{ 1, 26 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 1, 1 },
+				},
+				rotation = { -10, 10 },
+				alignX = true,
 				brightness = 3.5,
-				tint = { 128, 228, 255 },
 			},
 			{
 				type = "burst",
-				at = 0.03,
-				frame = "cut",
-				sprite = "explosion",
-				flip = "4x4",
-				count = 1,
-				life = { 0.5, 0.65 },
-				offset = { 0, 0, 0 },
-				size = {
-					{ 0, 9.9 },
-					{ 0.5, 19.8 },
-					{ 1, 22 },
-				},
-				transparency = {
-					{ 0, 0.12 },
-					{ 0.75, 0.25 },
-					{ 1, 1 },
-				},
-				color = {
-					{
-						0,
-						{ 236, 228, 255 },
-					},
-					{
-						0.35,
-						{ 196, 172, 255 },
-					},
-					{
-						0.7,
-						{ 140, 120, 240 },
-					},
-					{
-						1,
-						{ 110, 200, 255 },
-					},
-				},
-				rotation = { 0, 360 },
-				brightness = 1.9,
-				zoffset = 1,
-			},
-			{
-				type = "burst",
-				at = 0.07,
-				frame = "cut",
-				sprite = "explosion",
-				flip = "4x4",
-				count = 1,
-				life = { 0.5, 0.65 },
-				offset = { -7, 1, 0 },
-				size = {
-					{ 0, 6.3 },
-					{ 0.5, 12.6 },
-					{ 1, 14 },
-				},
-				transparency = {
-					{ 0, 0.12 },
-					{ 0.75, 0.25 },
-					{ 1, 1 },
-				},
-				color = {
-					{
-						0,
-						{ 236, 228, 255 },
-					},
-					{
-						0.35,
-						{ 196, 172, 255 },
-					},
-					{
-						0.7,
-						{ 140, 120, 240 },
-					},
-					{
-						1,
-						{ 110, 200, 255 },
-					},
-				},
-				rotation = { 0, 360 },
-				brightness = 1.9,
-				zoffset = 1,
-			},
-			{
-				type = "burst",
-				at = 0.1,
-				frame = "cut",
-				sprite = "explosion",
-				flip = "4x4",
-				count = 1,
-				life = { 0.5, 0.65 },
-				offset = { 7, -1, 0 },
-				size = {
-					{ 0, 6.3 },
-					{ 0.5, 12.6 },
-					{ 1, 14 },
-				},
-				transparency = {
-					{ 0, 0.12 },
-					{ 0.75, 0.25 },
-					{ 1, 1 },
-				},
-				color = {
-					{
-						0,
-						{ 236, 228, 255 },
-					},
-					{
-						0.35,
-						{ 196, 172, 255 },
-					},
-					{
-						0.7,
-						{ 140, 120, 240 },
-					},
-					{
-						1,
-						{ 110, 200, 255 },
-					},
-				},
-				rotation = { 0, 360 },
-				brightness = 1.9,
-				zoffset = 1,
-			},
-			{
-				type = "glow",
-				at = 0.04,
-				life = 0.2,
-				frame = "cut",
-				sprite = "burst",
-				size = {
-					{ 0, 13.6 },
-					{ 0.3, 34 },
-					{ 1, 17 },
-				},
-				transparency = {
-					{ 0, 0 },
-					{ 0.35, 0.05 },
-					{ 1, 1 },
-				},
-				color = {
-					{
-						0,
-						{ 255, 255, 255 },
-					},
-					{
-						1,
-						{ 200, 176, 255 },
-					},
-				},
-				rotation = 12,
-				brightness = 4,
-				spin = 50,
-			},
-			{
-				type = "glow",
-				at = 0.05,
-				life = 0.4,
-				frame = "cut",
-				sprite = "prism",
-				size = {
-					{ 0, 12 },
-					{ 0.3, 30 },
-					{ 1, 15 },
-				},
-				transparency = {
-					{ 0, 0 },
-					{ 0.35, 0.05 },
-					{ 1, 1 },
-				},
-				color = {
-					{
-						0,
-						{ 255, 255, 255 },
-					},
-					{
-						1,
-						{ 200, 176, 255 },
-					},
-				},
-				rotation = 0,
-				brightness = 2.4,
-			},
-			{
-				type = "burst",
-				at = 0.05,
-				frame = "cut",
-				sprite = "shock",
-				count = 1,
-				life = 0.3,
-				size = {
-					{ 0, 3 },
-					{ 0.5, 24 },
-					{ 1, 30 },
-				},
-				transparency = {
-					{ 0, 0.45 },
-					{ 0.5, 0.65 },
-					{ 1, 1 },
-				},
-				color = { 200, 176, 255 },
-				rotation = { 0, 360 },
-				brightness = 2,
-				zoffset = 1,
-			},
-			{
-				type = "burst",
-				at = 0.06,
-				frame = "ground",
-				sprite = "shock",
-				count = 1,
-				life = 0.5,
-				offset = { 0, 0.25, 0 },
-				worldUp = true,
-				speed = 0.01,
-				orientation = "flat",
-				size = {
-					{ 0, 3.52 },
-					{ 0.4, 33 },
-					{ 1, 44 },
-				},
-				transparency = {
-					{ 0, 0 },
-					{ 0.5, 0.2 },
-					{ 1, 1 },
-				},
-				color = { 255, 255, 255 },
-				rotation = { 0, 360 },
-				brightness = 3,
-			},
-			{
-				type = "burst",
-				at = 0.14,
-				frame = "ground",
-				sprite = "shock",
-				count = 1,
-				life = 0.4,
-				offset = { 0, 0.25, 0 },
-				worldUp = true,
-				speed = 0.01,
-				orientation = "flat",
-				size = {
-					{ 0, 2.24 },
-					{ 0.4, 21 },
-					{ 1, 28 },
-				},
-				transparency = {
-					{ 0, 0 },
-					{ 0.5, 0.2 },
-					{ 1, 1 },
-				},
-				color = { 128, 228, 255 },
-				rotation = { 0, 360 },
-				brightness = 3,
-			},
-			{
-				type = "burst",
-				at = 0.04,
+				at = 0,
 				frame = "cut",
 				sprite = "spark",
-				count = 50,
+				count = 30,
 				life = { 0.3, 0.7 },
-				speed = { 50, 130 },
+				speed = { 50, 120 },
 				dir = { 1, 0.15, 0 },
-				spread = 35,
+				spread = 30,
 				drag = 4,
 				orientation = "velocity",
 				size = {
@@ -7798,498 +7586,22 @@ return {
 				},
 				squash = -1.4,
 				brightness = 4,
-			},
-			{
-				type = "burst",
-				at = 0.07,
-				frame = "cut",
-				sprite = "spark",
-				count = 30,
-				life = { 0.3, 0.7 },
-				speed = { 30, 80 },
-				dir = { 0, 1, 0 },
-				spread = 180,
-				drag = 4,
-				orientation = "velocity",
-				size = {
-					{ 0, 0.45 },
-					{ 0.7, 0.315 },
-					{ 1, 0 },
-				},
-				transparency = {
-					{ 0, 0 },
-					{ 0.7, 0.2 },
-					{ 1, 1 },
-				},
-				color = {
-					{
-						0,
-						{ 255, 255, 255 },
-					},
-					{
-						1,
-						{ 128, 228, 255 },
-					},
-				},
-				squash = -1.4,
-				brightness = 4,
-				radius = 2,
-			},
-			{
-				type = "burst",
-				at = 0.08,
-				frame = "cut",
-				sprite = "glint",
-				count = 30,
-				life = { 0.8, 1.4 },
-				radius = 5,
-				speed = { 3, 9 },
-				spread = 180,
-				drag = 2,
-				accel = { 0, 6, 0 },
-				size = {
-					{ 0, 0.2 },
-					{ 0.3, 0.7 },
-					{ 1, 0 },
-				},
-				transparency = {
-					{ 0, 0 },
-					{ 0.8, 0.2 },
-					{ 1, 1 },
-				},
-				color = {
-					{
-						0,
-						{ 255, 255, 255 },
-					},
-					{
-						1,
-						{ 200, 176, 255 },
-					},
-				},
-				rotation = { 0, 360 },
-				spin = { -200, 200 },
-				brightness = 3,
-			},
-			{
-				type = "burst",
-				at = 0.08,
-				frame = "cut",
-				sprite = "smoke",
-				flip = "4x4",
-				count = 16,
-				life = { 0.8, 1.3 },
-				offset = { 0, 0, 0 },
-				dir = { 0, 1, 0 },
-				speed = { 8, 22 },
-				spread = 180,
-				drag = 3,
-				accel = { 0, 3, 0 },
-				size = {
-					{ 0, 4.55 },
-					{ 1, 13 },
-				},
-				transparency = {
-					{ 0, 0.3 },
-					{ 0.6, 0.55 },
-					{ 1, 1 },
-				},
-				color = {
-					{
-						0,
-						{ 232, 226, 255 },
-					},
-					{
-						0.5,
-						{ 176, 160, 230 },
-					},
-					{
-						1,
-						{ 110, 96, 160 },
-					},
-				},
-				rotation = { 0, 360 },
-				spin = { -40, 40 },
-				emission = 0.45,
-				brightness = 1.4,
-				radius = 3,
-			},
-			{
-				type = "burst",
-				at = 0.1,
-				frame = "ground",
-				sprite = "smoke",
-				flip = "4x4",
-				count = 14,
-				life = { 0.8, 1.3 },
-				offset = { 0, 0, 0 },
-				dir = { 0, 1, 0 },
-				speed = { 10, 24 },
-				spread = 85,
-				drag = 3,
-				accel = { 0, 3, 0 },
-				size = {
-					{ 0, 3.85 },
-					{ 1, 11 },
-				},
-				transparency = {
-					{ 0, 0.3 },
-					{ 0.6, 0.55 },
-					{ 1, 1 },
-				},
-				color = {
-					{
-						0,
-						{ 232, 226, 255 },
-					},
-					{
-						0.5,
-						{ 176, 160, 230 },
-					},
-					{
-						1,
-						{ 110, 96, 160 },
-					},
-				},
-				rotation = { 0, 360 },
-				spin = { -40, 40 },
-				emission = 0.45,
-				brightness = 1.4,
 			},
 			{
 				type = "light",
 				at = 0,
-				life = 0.6,
+				life = 0.3,
 				frame = "cut",
 				color = { 200, 176, 255 },
 				brightness = {
-					{ 0, 12 },
-					{ 0.25, 8.4 },
+					{ 0, 8 },
+					{ 0.25, 5.6 },
 					{ 1, 0 },
 				},
 				range = {
-					{ 0, 26 },
-					{ 1, 36.4 },
-				},
-			},
-			{
-				type = "burst",
-				at = 0.4,
-				frame = "cut",
-				sprite = "explosion",
-				flip = "4x4",
-				count = 1,
-				life = { 0.55, 0.7 },
-				offset = { 0, 0, 0 },
-				size = {
-					{ 0, 12.6 },
-					{ 0.5, 25.2 },
+					{ 0, 20 },
 					{ 1, 28 },
 				},
-				transparency = {
-					{ 0, 0.12 },
-					{ 0.75, 0.25 },
-					{ 1, 1 },
-				},
-				color = {
-					{
-						0,
-						{ 236, 228, 255 },
-					},
-					{
-						0.35,
-						{ 196, 172, 255 },
-					},
-					{
-						0.7,
-						{ 140, 120, 240 },
-					},
-					{
-						1,
-						{ 110, 200, 255 },
-					},
-				},
-				rotation = { 0, 360 },
-				brightness = 1.9,
-				zoffset = 1,
-			},
-			{
-				type = "glow",
-				at = 0.4,
-				life = 0.18,
-				frame = "cut",
-				sprite = "spike",
-				size = {
-					{ 0, 14.4 },
-					{ 0.3, 36 },
-					{ 1, 18 },
-				},
-				transparency = {
-					{ 0, 0 },
-					{ 0.35, 0.05 },
-					{ 1, 1 },
-				},
-				color = {
-					{
-						0,
-						{ 255, 255, 255 },
-					},
-					{
-						1,
-						{ 200, 176, 255 },
-					},
-				},
-				rotation = -10,
-				brightness = 5,
-				spin = -80,
-			},
-			{
-				type = "glow",
-				at = 0.4,
-				life = 0.1,
-				frame = "cut",
-				sprite = "core",
-				size = {
-					{ 0, 5.6 },
-					{ 0.3, 14 },
-					{ 1, 7 },
-				},
-				transparency = {
-					{ 0, 0 },
-					{ 0.35, 0.05 },
-					{ 1, 1 },
-				},
-				color = {
-					{
-						0,
-						{ 255, 255, 255 },
-					},
-					{
-						1,
-						{ 200, 176, 255 },
-					},
-				},
-				rotation = 0,
-				brightness = 6,
-			},
-			{
-				type = "burst",
-				at = 0.41,
-				frame = "cut",
-				sprite = "shock",
-				count = 1,
-				life = 0.36,
-				size = {
-					{ 0, 3.6 },
-					{ 0.5, 28.8 },
-					{ 1, 36 },
-				},
-				transparency = {
-					{ 0, 0.45 },
-					{ 0.5, 0.65 },
-					{ 1, 1 },
-				},
-				color = { 200, 176, 255 },
-				rotation = { 0, 360 },
-				brightness = 2,
-				zoffset = 1,
-			},
-			{
-				type = "burst",
-				at = 0.42,
-				frame = "ground",
-				sprite = "shock",
-				count = 1,
-				life = 0.6,
-				offset = { 0, 0.25, 0 },
-				worldUp = true,
-				speed = 0.01,
-				orientation = "flat",
-				size = {
-					{ 0, 4.8 },
-					{ 0.4, 45 },
-					{ 1, 60 },
-				},
-				transparency = {
-					{ 0, 0 },
-					{ 0.5, 0.2 },
-					{ 1, 1 },
-				},
-				color = { 255, 255, 255 },
-				rotation = { 0, 360 },
-				brightness = 3,
-			},
-			{
-				type = "burst",
-				at = 0.41,
-				frame = "cut",
-				sprite = "spark",
-				count = 60,
-				life = { 0.3, 0.7 },
-				speed = { 60, 150 },
-				dir = { 0, 1, 0 },
-				spread = 180,
-				drag = 4,
-				orientation = "velocity",
-				size = {
-					{ 0, 0.45 },
-					{ 0.7, 0.315 },
-					{ 1, 0 },
-				},
-				transparency = {
-					{ 0, 0 },
-					{ 0.7, 0.2 },
-					{ 1, 1 },
-				},
-				color = {
-					{
-						0,
-						{ 255, 255, 255 },
-					},
-					{
-						1,
-						{ 128, 228, 255 },
-					},
-				},
-				squash = -1.4,
-				brightness = 4,
-				radius = 2,
-			},
-			{
-				type = "burst",
-				at = 0.43,
-				frame = "ground",
-				sprite = "smoke",
-				flip = "4x4",
-				count = 18,
-				life = { 0.8, 1.3 },
-				offset = { 0, 0, 0 },
-				dir = { 0, 1, 0 },
-				speed = { 14, 30 },
-				spread = 85,
-				drag = 3,
-				accel = { 0, 3, 0 },
-				size = {
-					{ 0, 5.6 },
-					{ 1, 16 },
-				},
-				transparency = {
-					{ 0, 0.3 },
-					{ 0.6, 0.55 },
-					{ 1, 1 },
-				},
-				color = {
-					{
-						0,
-						{ 232, 226, 255 },
-					},
-					{
-						0.5,
-						{ 176, 160, 230 },
-					},
-					{
-						1,
-						{ 110, 96, 160 },
-					},
-				},
-				rotation = { 0, 360 },
-				spin = { -40, 40 },
-				emission = 0.45,
-				brightness = 1.4,
-			},
-			{
-				type = "burst",
-				at = 0.45,
-				frame = "cut",
-				sprite = "glint",
-				count = 40,
-				life = { 0.8, 1.4 },
-				radius = 7,
-				speed = { 3, 9 },
-				spread = 180,
-				drag = 2,
-				accel = { 0, 6, 0 },
-				size = {
-					{ 0, 0.2 },
-					{ 0.3, 0.7 },
-					{ 1, 0 },
-				},
-				transparency = {
-					{ 0, 0 },
-					{ 0.8, 0.2 },
-					{ 1, 1 },
-				},
-				color = {
-					{
-						0,
-						{ 255, 255, 255 },
-					},
-					{
-						1,
-						{ 200, 176, 255 },
-					},
-				},
-				rotation = { 0, 360 },
-				spin = { -200, 200 },
-				brightness = 3,
-			},
-			{
-				type = "light",
-				at = 0.4,
-				life = 0.6,
-				frame = "cut",
-				color = { 200, 176, 255 },
-				brightness = {
-					{ 0, 14 },
-					{ 0.25, 9.8 },
-					{ 1, 0 },
-				},
-				range = {
-					{ 0, 34 },
-					{ 1, 47.6 },
-				},
-			},
-			{
-				type = "sound",
-				at = 0.4,
-				name = "KatanaBurst",
-				volume = 1,
-				pitch = 0.7,
-			},
-			{
-				type = "sound",
-				at = 0.4,
-				name = "KatanaCrack",
-				volume = 0.9,
-				pitch = 0.8,
-			},
-			{
-				type = "camera",
-				at = 0.4,
-				attacker = {
-					shake = 0.8,
-					fov = -5,
-					impact = 0.5,
-					flash = 0.2,
-				},
-				victim = {
-					shake = 0.95,
-					punch = { 0, 1, 0, 1.3 },
-					fov = 10,
-					impact = 0.6,
-					flash = 0.3,
-				},
-				near = {
-					shake = 0.65,
-					radius = 90,
-				},
-			},
-			{
-				type = "sound",
-				at = 0.7,
-				name = "KatanaTail",
-				volume = 0.6,
-				pitch = 0.85,
 			},
 		},
 		whiff = {
@@ -11614,6 +10926,1438 @@ return {
 			},
 		},
 	},
+	Katana_RushFollow = {
+		blade = {
+			glow = {
+				{ 0, 1.2 },
+				{ 0.12, 1.7 },
+				{ 0.3, 1.7 },
+				{ 0.48, 1.8 },
+				{ 0.64, 1.9 },
+				{ 0.9, 1 },
+				{ 1.2, 0.35 },
+			},
+			halo = {
+				{ 0, 1 },
+				{ 0.48, 1.4 },
+				{ 0.64, 1.6 },
+				{ 1.2, 0.9 },
+			},
+			light = {
+				{ 0, 2 },
+				{ 0.48, 4 },
+				{ 0.64, 5 },
+				{ 1, 1 },
+				{ 1.2, 0 },
+			},
+		},
+		trails = {
+			{ 0.03, 0.56, 0.16 },
+		},
+		afterimages = {
+			from = 0,
+			to = 0.5,
+			every = 0.06,
+			life = 0.2,
+			alpha = 0.45,
+			color = { 200, 176, 255 },
+		},
+		cast = {
+			{
+				type = "burst",
+				at = 0.12,
+				frame = "cut",
+				sprite = "slash",
+				flip = "4x4",
+				count = 1,
+				life = 0.24,
+				size = {
+					{ 0, 22 },
+					{ 1, 30 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.7, 0.1 },
+					{ 1, 1 },
+				},
+				rotation = { 10, 10 },
+				brightness = 3.5,
+				zoffset = 2,
+			},
+			{
+				type = "burst",
+				at = 0.12,
+				frame = "cut",
+				sprite = "slash",
+				flip = "4x4",
+				count = 1,
+				life = 0.2,
+				size = {
+					{ 0, 14 },
+					{ 1, 18 },
+				},
+				transparency = {
+					{ 0, 0.2 },
+					{ 1, 1 },
+				},
+				color = { 128, 228, 255 },
+				rotation = { 100, 100 },
+				brightness = 2.5,
+				zoffset = 1,
+			},
+			{
+				type = "glow",
+				at = 0.12,
+				life = 0.08,
+				frame = "cut",
+				sprite = "core",
+				size = {
+					{ 0, 3.2 },
+					{ 0.3, 8 },
+					{ 1, 4 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.35, 0.05 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 255, 255, 255 },
+					},
+					{
+						1,
+						{ 200, 176, 255 },
+					},
+				},
+				rotation = 0,
+				brightness = 6,
+			},
+			{
+				type = "glow",
+				at = 0.12,
+				life = 0.13,
+				frame = "cut",
+				sprite = "spike",
+				size = {
+					{ 0, 6.4 },
+					{ 0.3, 16 },
+					{ 1, 8 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.35, 0.05 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 255, 255, 255 },
+					},
+					{
+						1,
+						{ 200, 176, 255 },
+					},
+				},
+				rotation = 10,
+				brightness = 5,
+				spin = 60,
+			},
+			{
+				type = "burst",
+				at = 0.12,
+				frame = "cut",
+				sprite = "spark",
+				count = 26,
+				life = { 0.3, 0.7 },
+				speed = { 50, 130 },
+				dir = { 0, 1, 0 },
+				spread = 180,
+				drag = 4,
+				orientation = "velocity",
+				size = {
+					{ 0, 0.45 },
+					{ 0.7, 0.315 },
+					{ 1, 0 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.7, 0.2 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 255, 255, 255 },
+					},
+					{
+						1,
+						{ 128, 228, 255 },
+					},
+				},
+				squash = -1.4,
+				brightness = 4,
+				radius = 1,
+			},
+			{
+				type = "burst",
+				at = 0.14,
+				frame = "cut",
+				sprite = "smoke",
+				flip = "4x4",
+				count = 5,
+				life = { 0.8, 1.3 },
+				offset = { 0, 0, 0 },
+				dir = { 0, 1, 0 },
+				speed = { 6, 14 },
+				spread = 180,
+				drag = 3,
+				accel = { 0, 3, 0 },
+				size = {
+					{ 0, 2.45 },
+					{ 1, 7 },
+				},
+				transparency = {
+					{ 0, 0.3 },
+					{ 0.6, 0.55 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 232, 226, 255 },
+					},
+					{
+						0.5,
+						{ 176, 160, 230 },
+					},
+					{
+						1,
+						{ 110, 96, 160 },
+					},
+				},
+				rotation = { 0, 360 },
+				spin = { -40, 40 },
+				emission = 0.45,
+				brightness = 1.4,
+				radius = 1.5,
+			},
+			{
+				type = "burst",
+				at = 0.12,
+				frame = "ground",
+				sprite = "shock",
+				count = 1,
+				life = 0.28,
+				offset = { 0, 0.25, 0 },
+				worldUp = true,
+				speed = 0.01,
+				orientation = "flat",
+				size = {
+					{ 0, 1.12 },
+					{ 0.4, 10.5 },
+					{ 1, 14 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.5, 0.2 },
+					{ 1, 1 },
+				},
+				color = { 255, 255, 255 },
+				rotation = { 0, 360 },
+				brightness = 3,
+			},
+			{
+				type = "sound",
+				at = 0.12,
+				name = "KatanaSwing",
+				volume = 0.9,
+				pitch = 1.3,
+			},
+			{
+				type = "sound",
+				at = 0.12,
+				name = "KatanaCrack",
+				volume = 0.8,
+				pitch = 1.15,
+			},
+			{
+				type = "light",
+				at = 0.12,
+				life = 0.18,
+				frame = "cut",
+				color = { 200, 176, 255 },
+				brightness = {
+					{ 0, 6 },
+					{ 0.25, 4.2 },
+					{ 1, 0 },
+				},
+				range = {
+					{ 0, 16 },
+					{ 1, 22.4 },
+				},
+			},
+			{
+				type = "camera",
+				at = 0.12,
+				attacker = {
+					shake = 0.32,
+					punch = { 1, 0, 0, 0.4 },
+					impact = 0.25,
+				},
+				victim = {
+					shake = 0.45,
+					punch = { -1, 0.3, 0, 0.6 },
+					impact = 0.3,
+				},
+				near = {
+					shake = 0.2,
+					radius = 50,
+				},
+			},
+			{
+				type = "burst",
+				at = 0.3,
+				frame = "cut",
+				sprite = "slash",
+				flip = "4x4",
+				count = 1,
+				life = 0.24,
+				size = {
+					{ 0, 22 },
+					{ 1, 30 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.7, 0.1 },
+					{ 1, 1 },
+				},
+				rotation = { -55, -55 },
+				brightness = 3.5,
+				zoffset = 2,
+			},
+			{
+				type = "burst",
+				at = 0.3,
+				frame = "cut",
+				sprite = "slash",
+				flip = "4x4",
+				count = 1,
+				life = 0.2,
+				size = {
+					{ 0, 14 },
+					{ 1, 18 },
+				},
+				transparency = {
+					{ 0, 0.2 },
+					{ 1, 1 },
+				},
+				color = { 128, 228, 255 },
+				rotation = { 35, 35 },
+				brightness = 2.5,
+				zoffset = 1,
+			},
+			{
+				type = "glow",
+				at = 0.3,
+				life = 0.08,
+				frame = "cut",
+				sprite = "core",
+				size = {
+					{ 0, 3.2 },
+					{ 0.3, 8 },
+					{ 1, 4 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.35, 0.05 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 255, 255, 255 },
+					},
+					{
+						1,
+						{ 200, 176, 255 },
+					},
+				},
+				rotation = 0,
+				brightness = 6,
+			},
+			{
+				type = "glow",
+				at = 0.3,
+				life = 0.13,
+				frame = "cut",
+				sprite = "spike",
+				size = {
+					{ 0, 6.4 },
+					{ 0.3, 16 },
+					{ 1, 8 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.35, 0.05 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 255, 255, 255 },
+					},
+					{
+						1,
+						{ 200, 176, 255 },
+					},
+				},
+				rotation = -55,
+				brightness = 5,
+				spin = 60,
+			},
+			{
+				type = "burst",
+				at = 0.3,
+				frame = "cut",
+				sprite = "spark",
+				count = 26,
+				life = { 0.3, 0.7 },
+				speed = { 50, 130 },
+				dir = { 0, 1, 0 },
+				spread = 180,
+				drag = 4,
+				orientation = "velocity",
+				size = {
+					{ 0, 0.45 },
+					{ 0.7, 0.315 },
+					{ 1, 0 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.7, 0.2 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 255, 255, 255 },
+					},
+					{
+						1,
+						{ 128, 228, 255 },
+					},
+				},
+				squash = -1.4,
+				brightness = 4,
+				radius = 1,
+			},
+			{
+				type = "burst",
+				at = 0.32,
+				frame = "cut",
+				sprite = "smoke",
+				flip = "4x4",
+				count = 5,
+				life = { 0.8, 1.3 },
+				offset = { 0, 0, 0 },
+				dir = { 0, 1, 0 },
+				speed = { 6, 14 },
+				spread = 180,
+				drag = 3,
+				accel = { 0, 3, 0 },
+				size = {
+					{ 0, 2.45 },
+					{ 1, 7 },
+				},
+				transparency = {
+					{ 0, 0.3 },
+					{ 0.6, 0.55 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 232, 226, 255 },
+					},
+					{
+						0.5,
+						{ 176, 160, 230 },
+					},
+					{
+						1,
+						{ 110, 96, 160 },
+					},
+				},
+				rotation = { 0, 360 },
+				spin = { -40, 40 },
+				emission = 0.45,
+				brightness = 1.4,
+				radius = 1.5,
+			},
+			{
+				type = "burst",
+				at = 0.3,
+				frame = "ground",
+				sprite = "shock",
+				count = 1,
+				life = 0.28,
+				offset = { 0, 0.25, 0 },
+				worldUp = true,
+				speed = 0.01,
+				orientation = "flat",
+				size = {
+					{ 0, 1.12 },
+					{ 0.4, 10.5 },
+					{ 1, 14 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.5, 0.2 },
+					{ 1, 1 },
+				},
+				color = { 255, 255, 255 },
+				rotation = { 0, 360 },
+				brightness = 3,
+			},
+			{
+				type = "sound",
+				at = 0.3,
+				name = "KatanaSwing",
+				volume = 0.9,
+				pitch = 1.3,
+			},
+			{
+				type = "sound",
+				at = 0.3,
+				name = "KatanaCrack",
+				volume = 0.8,
+				pitch = 1.15,
+			},
+			{
+				type = "light",
+				at = 0.3,
+				life = 0.18,
+				frame = "cut",
+				color = { 200, 176, 255 },
+				brightness = {
+					{ 0, 6 },
+					{ 0.25, 4.2 },
+					{ 1, 0 },
+				},
+				range = {
+					{ 0, 16 },
+					{ 1, 22.4 },
+				},
+			},
+			{
+				type = "camera",
+				at = 0.3,
+				attacker = {
+					shake = 0.32,
+					punch = { 1, 0, 0, 0.4 },
+					impact = 0.25,
+				},
+				victim = {
+					shake = 0.45,
+					punch = { -1, 0.3, 0, 0.6 },
+					impact = 0.3,
+				},
+				near = {
+					shake = 0.2,
+					radius = 50,
+				},
+			},
+			{
+				type = "burst",
+				at = 0.48,
+				frame = "cut",
+				sprite = "slash",
+				flip = "4x4",
+				count = 1,
+				life = 0.24,
+				size = {
+					{ 0, 25.3 },
+					{ 1, 34.5 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.7, 0.1 },
+					{ 1, 1 },
+				},
+				rotation = { 90, 90 },
+				brightness = 3.5,
+				zoffset = 2,
+			},
+			{
+				type = "burst",
+				at = 0.48,
+				frame = "cut",
+				sprite = "slash",
+				flip = "4x4",
+				count = 1,
+				life = 0.2,
+				size = {
+					{ 0, 16.1 },
+					{ 1, 20.7 },
+				},
+				transparency = {
+					{ 0, 0.2 },
+					{ 1, 1 },
+				},
+				color = { 128, 228, 255 },
+				rotation = { 180, 180 },
+				brightness = 2.5,
+				zoffset = 1,
+			},
+			{
+				type = "glow",
+				at = 0.48,
+				life = 0.08,
+				frame = "cut",
+				sprite = "core",
+				size = {
+					{ 0, 3.68 },
+					{ 0.3, 9.2 },
+					{ 1, 4.6 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.35, 0.05 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 255, 255, 255 },
+					},
+					{
+						1,
+						{ 200, 176, 255 },
+					},
+				},
+				rotation = 0,
+				brightness = 6,
+			},
+			{
+				type = "glow",
+				at = 0.48,
+				life = 0.13,
+				frame = "cut",
+				sprite = "spike",
+				size = {
+					{ 0, 7.36 },
+					{ 0.3, 18.4 },
+					{ 1, 9.2 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.35, 0.05 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 255, 255, 255 },
+					},
+					{
+						1,
+						{ 200, 176, 255 },
+					},
+				},
+				rotation = 90,
+				brightness = 5,
+				spin = 60,
+			},
+			{
+				type = "burst",
+				at = 0.48,
+				frame = "cut",
+				sprite = "spark",
+				count = 26,
+				life = { 0.3, 0.7 },
+				speed = { 50, 130 },
+				dir = { 0, 1, 0 },
+				spread = 180,
+				drag = 4,
+				orientation = "velocity",
+				size = {
+					{ 0, 0.45 },
+					{ 0.7, 0.315 },
+					{ 1, 0 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.7, 0.2 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 255, 255, 255 },
+					},
+					{
+						1,
+						{ 128, 228, 255 },
+					},
+				},
+				squash = -1.4,
+				brightness = 4,
+				radius = 1,
+			},
+			{
+				type = "burst",
+				at = 0.5,
+				frame = "cut",
+				sprite = "smoke",
+				flip = "4x4",
+				count = 5,
+				life = { 0.8, 1.3 },
+				offset = { 0, 0, 0 },
+				dir = { 0, 1, 0 },
+				speed = { 6, 14 },
+				spread = 180,
+				drag = 3,
+				accel = { 0, 3, 0 },
+				size = {
+					{ 0, 2.45 },
+					{ 1, 7 },
+				},
+				transparency = {
+					{ 0, 0.3 },
+					{ 0.6, 0.55 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 232, 226, 255 },
+					},
+					{
+						0.5,
+						{ 176, 160, 230 },
+					},
+					{
+						1,
+						{ 110, 96, 160 },
+					},
+				},
+				rotation = { 0, 360 },
+				spin = { -40, 40 },
+				emission = 0.45,
+				brightness = 1.4,
+				radius = 1.5,
+			},
+			{
+				type = "burst",
+				at = 0.48,
+				frame = "ground",
+				sprite = "shock",
+				count = 1,
+				life = 0.28,
+				offset = { 0, 0.25, 0 },
+				worldUp = true,
+				speed = 0.01,
+				orientation = "flat",
+				size = {
+					{ 0, 1.288 },
+					{ 0.4, 12.075 },
+					{ 1, 16.1 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.5, 0.2 },
+					{ 1, 1 },
+				},
+				color = { 255, 255, 255 },
+				rotation = { 0, 360 },
+				brightness = 3,
+			},
+			{
+				type = "sound",
+				at = 0.48,
+				name = "KatanaSwing",
+				volume = 0.9,
+				pitch = 1.3,
+			},
+			{
+				type = "sound",
+				at = 0.48,
+				name = "KatanaCrack",
+				volume = 0.8,
+				pitch = 1.15,
+			},
+			{
+				type = "light",
+				at = 0.48,
+				life = 0.18,
+				frame = "cut",
+				color = { 200, 176, 255 },
+				brightness = {
+					{ 0, 6 },
+					{ 0.25, 4.2 },
+					{ 1, 0 },
+				},
+				range = {
+					{ 0, 16 },
+					{ 1, 22.4 },
+				},
+			},
+			{
+				type = "camera",
+				at = 0.48,
+				attacker = {
+					shake = 0.32,
+					punch = { 1, 0, 0, 0.4 },
+					impact = 0.25,
+				},
+				victim = {
+					shake = 0.45,
+					punch = { -1, 0.3, 0, 0.6 },
+					impact = 0.3,
+				},
+				near = {
+					shake = 0.2,
+					radius = 50,
+				},
+			},
+			{
+				type = "burst",
+				at = 0.64,
+				frame = "cut",
+				sprite = "explosion",
+				flip = "4x4",
+				count = 1,
+				life = { 0.5, 0.65 },
+				offset = { 0, 0, 0 },
+				size = {
+					{ 0, 9.9 },
+					{ 0.5, 19.8 },
+					{ 1, 22 },
+				},
+				transparency = {
+					{ 0, 0.12 },
+					{ 0.75, 0.25 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 236, 228, 255 },
+					},
+					{
+						0.35,
+						{ 196, 172, 255 },
+					},
+					{
+						0.7,
+						{ 140, 120, 240 },
+					},
+					{
+						1,
+						{ 110, 200, 255 },
+					},
+				},
+				rotation = { 0, 360 },
+				brightness = 1.9,
+				zoffset = 1,
+			},
+			{
+				type = "burst",
+				at = 0.68,
+				frame = "cut",
+				sprite = "explosion",
+				flip = "4x4",
+				count = 1,
+				life = { 0.5, 0.65 },
+				offset = { -7, 1, 0 },
+				size = {
+					{ 0, 6.3 },
+					{ 0.5, 12.6 },
+					{ 1, 14 },
+				},
+				transparency = {
+					{ 0, 0.12 },
+					{ 0.75, 0.25 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 236, 228, 255 },
+					},
+					{
+						0.35,
+						{ 196, 172, 255 },
+					},
+					{
+						0.7,
+						{ 140, 120, 240 },
+					},
+					{
+						1,
+						{ 110, 200, 255 },
+					},
+				},
+				rotation = { 0, 360 },
+				brightness = 1.9,
+				zoffset = 1,
+			},
+			{
+				type = "burst",
+				at = 0.71,
+				frame = "cut",
+				sprite = "explosion",
+				flip = "4x4",
+				count = 1,
+				life = { 0.5, 0.65 },
+				offset = { 7, -1, 0 },
+				size = {
+					{ 0, 6.3 },
+					{ 0.5, 12.6 },
+					{ 1, 14 },
+				},
+				transparency = {
+					{ 0, 0.12 },
+					{ 0.75, 0.25 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 236, 228, 255 },
+					},
+					{
+						0.35,
+						{ 196, 172, 255 },
+					},
+					{
+						0.7,
+						{ 140, 120, 240 },
+					},
+					{
+						1,
+						{ 110, 200, 255 },
+					},
+				},
+				rotation = { 0, 360 },
+				brightness = 1.9,
+				zoffset = 1,
+			},
+			{
+				type = "burst",
+				at = 0.7,
+				frame = "ground",
+				sprite = "explosion",
+				flip = "4x4",
+				count = 1,
+				life = { 0.5, 0.65 },
+				offset = { 0, 1.5, 0 },
+				size = {
+					{ 0, 8.1 },
+					{ 0.5, 16.2 },
+					{ 1, 18 },
+				},
+				transparency = {
+					{ 0, 0.12 },
+					{ 0.75, 0.25 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 236, 228, 255 },
+					},
+					{
+						0.35,
+						{ 196, 172, 255 },
+					},
+					{
+						0.7,
+						{ 140, 120, 240 },
+					},
+					{
+						1,
+						{ 110, 200, 255 },
+					},
+				},
+				rotation = { 0, 360 },
+				brightness = 1.9,
+				zoffset = 1,
+			},
+			{
+				type = "glow",
+				at = 0.64,
+				life = 0.1,
+				frame = "cut",
+				sprite = "core",
+				size = {
+					{ 0, 5.6 },
+					{ 0.3, 14 },
+					{ 1, 7 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.35, 0.05 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 255, 255, 255 },
+					},
+					{
+						1,
+						{ 200, 176, 255 },
+					},
+				},
+				rotation = 0,
+				brightness = 6,
+			},
+			{
+				type = "glow",
+				at = 0.64,
+				life = 0.14,
+				frame = "cut",
+				sprite = "star",
+				size = {
+					{ 0, 13.6 },
+					{ 0.3, 34 },
+					{ 1, 17 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.35, 0.05 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 255, 255, 255 },
+					},
+					{
+						1,
+						{ 255, 214, 176 },
+					},
+				},
+				rotation = 0,
+				brightness = 5,
+				alignX = true,
+			},
+			{
+				type = "glow",
+				at = 0.64,
+				life = 0.18,
+				frame = "cut",
+				sprite = "spike",
+				size = {
+					{ 0, 12.8 },
+					{ 0.3, 32 },
+					{ 1, 16 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.35, 0.05 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 255, 255, 255 },
+					},
+					{
+						1,
+						{ 200, 176, 255 },
+					},
+				},
+				rotation = -10,
+				brightness = 5,
+				spin = -80,
+			},
+			{
+				type = "glow",
+				at = 0.66,
+				life = 0.2,
+				frame = "cut",
+				sprite = "burst",
+				size = {
+					{ 0, 13.6 },
+					{ 0.3, 34 },
+					{ 1, 17 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.35, 0.05 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 255, 255, 255 },
+					},
+					{
+						1,
+						{ 200, 176, 255 },
+					},
+				},
+				rotation = 12,
+				brightness = 4,
+				spin = 50,
+			},
+			{
+				type = "glow",
+				at = 0.67,
+				life = 0.4,
+				frame = "cut",
+				sprite = "prism",
+				size = {
+					{ 0, 12 },
+					{ 0.3, 30 },
+					{ 1, 15 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.35, 0.05 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 255, 255, 255 },
+					},
+					{
+						1,
+						{ 200, 176, 255 },
+					},
+				},
+				rotation = 0,
+				brightness = 2.4,
+			},
+			{
+				type = "burst",
+				at = 0.66,
+				frame = "cut",
+				sprite = "shock",
+				count = 1,
+				life = 0.32,
+				size = {
+					{ 0, 3.2 },
+					{ 0.5, 25.6 },
+					{ 1, 32 },
+				},
+				transparency = {
+					{ 0, 0.45 },
+					{ 0.5, 0.65 },
+					{ 1, 1 },
+				},
+				color = { 200, 176, 255 },
+				rotation = { 0, 360 },
+				brightness = 2,
+				zoffset = 1,
+			},
+			{
+				type = "burst",
+				at = 0.67,
+				frame = "ground",
+				sprite = "shock",
+				count = 1,
+				life = 0.55,
+				offset = { 0, 0.25, 0 },
+				worldUp = true,
+				speed = 0.01,
+				orientation = "flat",
+				size = {
+					{ 0, 4.48 },
+					{ 0.4, 42 },
+					{ 1, 56 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.5, 0.2 },
+					{ 1, 1 },
+				},
+				color = { 255, 255, 255 },
+				rotation = { 0, 360 },
+				brightness = 3,
+			},
+			{
+				type = "burst",
+				at = 0.76,
+				frame = "ground",
+				sprite = "shock",
+				count = 1,
+				life = 0.45,
+				offset = { 0, 0.25, 0 },
+				worldUp = true,
+				speed = 0.01,
+				orientation = "flat",
+				size = {
+					{ 0, 2.72 },
+					{ 0.4, 25.5 },
+					{ 1, 34 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.5, 0.2 },
+					{ 1, 1 },
+				},
+				color = { 128, 228, 255 },
+				rotation = { 0, 360 },
+				brightness = 3,
+			},
+			{
+				type = "burst",
+				at = 0.65,
+				frame = "cut",
+				sprite = "spark",
+				count = 60,
+				life = { 0.3, 0.7 },
+				speed = { 60, 150 },
+				dir = { 0, 1, 0 },
+				spread = 180,
+				drag = 4,
+				orientation = "velocity",
+				size = {
+					{ 0, 0.45 },
+					{ 0.7, 0.315 },
+					{ 1, 0 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.7, 0.2 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 255, 255, 255 },
+					},
+					{
+						1,
+						{ 128, 228, 255 },
+					},
+				},
+				squash = -1.4,
+				brightness = 4,
+				radius = 2,
+			},
+			{
+				type = "burst",
+				at = 0.67,
+				frame = "cut",
+				sprite = "spark",
+				count = 40,
+				life = { 0.3, 0.7 },
+				speed = { 50, 130 },
+				dir = { 1, 0.15, 0 },
+				spread = 35,
+				drag = 4,
+				orientation = "velocity",
+				size = {
+					{ 0, 0.45 },
+					{ 0.7, 0.315 },
+					{ 1, 0 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.7, 0.2 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 255, 255, 255 },
+					},
+					{
+						1,
+						{ 128, 228, 255 },
+					},
+				},
+				squash = -1.4,
+				brightness = 4,
+			},
+			{
+				type = "burst",
+				at = 0.68,
+				frame = "cut",
+				sprite = "smoke",
+				flip = "4x4",
+				count = 16,
+				life = { 0.8, 1.3 },
+				offset = { 0, 0, 0 },
+				dir = { 0, 1, 0 },
+				speed = { 8, 22 },
+				spread = 180,
+				drag = 3,
+				accel = { 0, 3, 0 },
+				size = {
+					{ 0, 4.55 },
+					{ 1, 13 },
+				},
+				transparency = {
+					{ 0, 0.3 },
+					{ 0.6, 0.55 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 232, 226, 255 },
+					},
+					{
+						0.5,
+						{ 176, 160, 230 },
+					},
+					{
+						1,
+						{ 110, 96, 160 },
+					},
+				},
+				rotation = { 0, 360 },
+				spin = { -40, 40 },
+				emission = 0.45,
+				brightness = 1.4,
+				radius = 3,
+			},
+			{
+				type = "burst",
+				at = 0.69,
+				frame = "ground",
+				sprite = "smoke",
+				flip = "4x4",
+				count = 18,
+				life = { 0.8, 1.3 },
+				offset = { 0, 0, 0 },
+				dir = { 0, 1, 0 },
+				speed = { 14, 30 },
+				spread = 85,
+				drag = 3,
+				accel = { 0, 3, 0 },
+				size = {
+					{ 0, 5.25 },
+					{ 1, 15 },
+				},
+				transparency = {
+					{ 0, 0.3 },
+					{ 0.6, 0.55 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 232, 226, 255 },
+					},
+					{
+						0.5,
+						{ 176, 160, 230 },
+					},
+					{
+						1,
+						{ 110, 96, 160 },
+					},
+				},
+				rotation = { 0, 360 },
+				spin = { -40, 40 },
+				emission = 0.45,
+				brightness = 1.4,
+			},
+			{
+				type = "burst",
+				at = 0.7,
+				frame = "cut",
+				sprite = "glint",
+				count = 40,
+				life = { 0.8, 1.4 },
+				radius = 7,
+				speed = { 3, 9 },
+				spread = 180,
+				drag = 2,
+				accel = { 0, 6, 0 },
+				size = {
+					{ 0, 0.2 },
+					{ 0.3, 0.7 },
+					{ 1, 0 },
+				},
+				transparency = {
+					{ 0, 0 },
+					{ 0.8, 0.2 },
+					{ 1, 1 },
+				},
+				color = {
+					{
+						0,
+						{ 255, 255, 255 },
+					},
+					{
+						1,
+						{ 200, 176, 255 },
+					},
+				},
+				rotation = { 0, 360 },
+				spin = { -200, 200 },
+				brightness = 3,
+			},
+			{
+				type = "light",
+				at = 0.64,
+				life = 0.6,
+				frame = "cut",
+				color = { 200, 176, 255 },
+				brightness = {
+					{ 0, 14 },
+					{ 0.25, 9.8 },
+					{ 1, 0 },
+				},
+				range = {
+					{ 0, 34 },
+					{ 1, 47.6 },
+				},
+			},
+			{
+				type = "sound",
+				at = 0.64,
+				name = "KatanaBurst",
+				volume = 1,
+				pitch = 0.7,
+			},
+			{
+				type = "sound",
+				at = 0.64,
+				name = "KatanaCrack",
+				volume = 0.9,
+				pitch = 0.8,
+			},
+			{
+				type = "sound",
+				at = 0.94,
+				name = "KatanaTail",
+				volume = 0.6,
+				pitch = 0.85,
+			},
+			{
+				type = "camera",
+				at = 0.64,
+				attacker = {
+					shake = 0.8,
+					fov = -5,
+					impact = 0.5,
+					flash = 0.2,
+				},
+				victim = {
+					shake = 0.95,
+					punch = { 0, 1, 0, 1.3 },
+					fov = 10,
+					impact = 0.6,
+					flash = 0.3,
+				},
+				near = {
+					shake = 0.65,
+					radius = 90,
+				},
+			},
+		},
+	},
 }
 ]===]
 
@@ -12061,6 +12805,7 @@ local function resolveHit(attacker, defender, attack, kind, attackId, clientDriv
 	clearStunParry(defender)
 	local heavy = attack.heavy or attack.knockback >= 18 or attack.launcher or attack.slam
 	effect(heavy and "HeavyHit" or "Hit", contact, attacker, defender, kind, attackId)
+	defender.lastCleanHit = { by = attacker, at = t }
 	if damage(defender, attack.damage) then
 		releaseJuggle(defender)
 		return
@@ -12145,6 +12890,36 @@ local function resolveHit(attacker, defender, attack, kind, attackId, clientDriv
 	end
 end
 
+------------------------------------------------------------------------
+-- Lumen Rush's hit and miss (the rest of the skill code is further down)
+
+-- a share of the victim's max health (admin overrides still win)
+local function shareOf(attacker, victim, fraction)
+	return Config.damageFor(attacker.model, victim.humanoid.MaxHealth * fraction)
+end
+
+-- The dash's cut: it holds them for the follow-up instead of knocking back.
+local function rushCut(c, target, attack)
+	local def = table.clone(attack)
+	def.damage = shareOf(c, target, Config.KatanaSkills.KatanaRush.cutFraction)
+	def.knockback, def.launch, def.hitstun, def.react = 0, 0, 1.0, "HitFront"
+	return def
+end
+
+-- A whiffed Z: the swing carries you into a guard break.
+local function rushStagger(c)
+	local S = Config.KatanaSkills.KatanaRush
+	c.attack = nil
+	c.combo = 0
+	c.blockReadyAt = now() + S.staggerOnMiss + Config.BlockCooldown
+	stopMotion(c)
+	setState(c, "GuardBroken", S.staggerOnMiss)
+	playAnim(c, "GuardBreak")
+	effect("GuardBreak", c.root.Position, c, c, "KatanaRushStagger")
+end
+
+local rushFollow -- defined with the katana skills below
+
 -- `attackId` is the client's input sequence number for a player's strike;
 -- with it, that client reports the hit itself (see claimHit).
 local function startAttack(c, kind, predicted, attackId, inheritedSpeed)
@@ -12186,6 +12961,15 @@ local function startAttack(c, kind, predicted, attackId, inheritedSpeed)
 		stopHover(c)
 	end
 
+	-- Lumen Rush: a miss (nobody cut, or they dashed through it) staggers you
+	if attack.rush then
+		task.delay(hitDelay + 0.4, function()
+			if c.token == token and c.attack == a and not a.contact and isAlive(c) then
+				rushStagger(c)
+			end
+		end)
+	end
+
 	if clientDriven then
 		-- The attacker's client lunges, finds the hit and reports it; here we
 		-- only end the strike on time.
@@ -12223,7 +13007,16 @@ local function startAttack(c, kind, predicted, attackId, inheritedSpeed)
 		local target = findTarget(c, attack)
 		if target then
 			a.contact = true
-			resolveHit(c, target, attack, kind)
+			if attack.rush then
+				local before = now()
+				resolveHit(c, target, rushCut(c, target, attack), kind)
+				if target.lastCleanHit and target.lastCleanHit.by == c and target.lastCleanHit.at >= before then
+					rushFollow(c, target)
+					return
+				end
+			else
+				resolveHit(c, target, attack, kind)
+			end
 		end
 		if c.token ~= token then
 			return
@@ -12296,6 +13089,14 @@ function CombatService.claimHit(c, attackId, targetModel, startCF)
 	-- connected (a dodge through i-frames still counts as a whiff)
 	if now() >= target.iframesUntil then
 		a.contact = true
+	end
+	if attack.rush then
+		local before = now()
+		resolveHit(c, target, rushCut(c, target, attack), a.kind, attackId, true)
+		if target.lastCleanHit and target.lastCleanHit.by == c and target.lastCleanHit.at >= before then
+			rushFollow(c, target)
+		end
+		return true
 	end
 	resolveHit(c, target, attack, a.kind, attackId, true)
 	return true
@@ -12672,6 +13473,64 @@ function CombatService.rushDistance(c)
 	return S.maxDistance
 end
 
+-- The follow-up after the dash's cut lands: three more cuts, then the
+-- explosion that launches them. Everyone plays Katana_RushFollow (the
+-- owner's client moves its own body to each cut; dummies are moved here).
+rushFollow = function(c, victim)
+	local S = Config.KatanaSkills.KatanaRush
+	local base = Config.Attacks.KatanaRush
+	local clip = AnimationData.Katana_RushFollow
+	local m = clip.markers
+	local t = now()
+	local a = { kind = "KatanaRushFollow", def = { feintable = false, walkSpeed = 0 }, started = t, hitAt = t + m.Boom, speed = 1, contact = true }
+	c.attack = a
+	local token = setState(c, "Attacking")
+	c.nextActionAt = t + clip.recover
+	playAnim(c, "Katana_RushFollow")
+	local cuts = { { m.Cut1, "HitFront" }, { m.Cut2, "HitFrontB" }, { m.Cut3, "HitFrontC" } }
+	for i, cut in ipairs(cuts) do
+		task.delay(cut[1], function()
+			if c.token ~= token or not isAlive(c) or not isAlive(victim) then
+				return
+			end
+			if not c.player then
+				-- dummies blink to the cut themselves
+				local around = flat(c.root.Position - victim.root.Position)
+				around = around.Magnitude > 0.1 and around.Unit or Vector3.xAxis
+				local angle = math.rad(S.blinkAngles[i] or 0)
+				local dir = CFrame.Angles(0, angle, 0):VectorToWorldSpace(around)
+				local at = victim.root.Position + dir * S.blinkRadius
+				c.root.CFrame = CFrame.lookAt(at, Vector3.new(victim.root.Position.X, at.Y, victim.root.Position.Z))
+			end
+			local def = table.clone(base)
+			def.damage = shareOf(c, victim, S.cutFraction)
+			def.knockback, def.launch, def.hitstun, def.react = 0, 0, 0.7, cut[2]
+			resolveHit(c, victim, def, "KatanaRushCut")
+		end)
+	end
+	task.delay(m.Boom, function()
+		if c.token ~= token or not isAlive(c) or not isAlive(victim) then
+			return
+		end
+		local def = table.clone(base)
+		def.damage = shareOf(c, victim, S.boomFraction)
+		def.knockback, def.launch, def.hitstun, def.react = 78, 32, 1.05, "Knockback"
+		resolveHit(c, victim, def, "KatanaRushBoom", nil, false, {
+			contact = victim.root.Position,
+			direction = (function()
+				local d = flat(victim.root.Position - c.root.Position)
+				return d.Magnitude > 0.1 and d.Unit or flat(c.root.CFrame.LookVector).Unit
+			end)(),
+		})
+	end)
+	task.delay(clip.recover, function()
+		if c.token == token then
+			c.attack = nil
+			setState(c, "Idle")
+		end
+	end)
+end
+
 function CombatService.katanaRush(c, predicted, attackId)
 	local t = now()
 	if not katanaReady(c) or not canStartAction(c, t) or t < c.rushReadyAt then
@@ -12707,11 +13566,35 @@ local function flyCrescent(c, attack, a, onEnd)
 	hitBox.FilterType = Enum.RaycastFilterType.Include
 	local passed = {} -- dashed through it: it carries on past them
 
+	-- every explosion catches everyone close (not the caster, not whoever
+	-- the crescent itself already hit)
+	local function blast(point, skip)
+		for _, other in pairs(combatants) do
+			if other ~= c and other ~= skip and isAlive(other) and now() >= other.iframesUntil then
+				local offset = flat(other.root.Position - point)
+				if offset.Magnitude <= S.blastRadius and math.abs(other.root.Position.Y - point.Y) <= S.blastRadius then
+					local def = table.clone(attack)
+					def.damage = shareOf(c, other, S.damageFraction)
+					def.knockback, def.launch, def.hitstun, def.react = 40, 16, 0.8, "Knockback"
+					a.contact = true
+					resolveHit(c, other, def, "KatanaCrescentBlast", nil, false, {
+						contact = other.root.Position,
+						direction = offset.Magnitude > 0.1 and offset.Unit or direction,
+					})
+				end
+			end
+		end
+	end
+
 	local travelled = 0
 	local last = now()
 	local connection
-	local function finish()
+	local function finish(hitSomeone)
 		connection:Disconnect()
+		if not hitSomeone then
+			-- out of range or into a wall: it still explodes there
+			blast(origin + direction * (travelled + LEAD * 0.5) + Vector3.new(0, -2, 0))
+		end
 		onEnd()
 	end
 	connection = RunService.Heartbeat:Connect(function()
@@ -12756,11 +13639,19 @@ local function flyCrescent(c, attack, a, onEnd)
 				else
 					a.contact = true
 					local at = math.max(0, bestAlong - LEAD * 0.5)
-					resolveHit(c, victim, attack, "KatanaCrescent", nil, false, {
+					local def = table.clone(attack)
+					def.damage = shareOf(c, victim, S.damageFraction)
+					resolveHit(c, victim, def, "KatanaCrescent", nil, false, {
 						contact = origin + direction * at,
 						direction = direction,
 					})
-					finish()
+					-- it drives on through them, then explodes
+					local hitVictim = victim
+					task.delay(S.carryTime, function()
+						local point = hitVictim.root.Position
+						blast(point, hitVictim)
+					end)
+					finish(true)
 					return
 				end
 			end
@@ -14452,6 +15343,8 @@ end
 
 -- Where this cast's dash started (the hit is anyone the path passed).
 local rushPath = nil
+-- Who the last dash cut (the follow-up cuts blink around them).
+local rushVictim = nil
 
 local function clientHit(kind, attackId, token)
 	if token ~= attackToken then
@@ -14495,6 +15388,9 @@ local function clientHit(kind, attackId, token)
 	end
 	if not target or hasIFrames(target) then
 		return
+	end
+	if attack.rush then
+		rushVictim = { model = target, at = os.clock() }
 	end
 	Remotes.Action:FireServer("Hit", nil, { id = attackId, target = target })
 
@@ -15402,6 +16298,69 @@ local function armRush(token)
 		connection:Disconnect()
 	end)
 end
+
+-- The dash's cut landed: the server plays Katana_RushFollow, and our own
+-- body blinks around the victim for each of its three extra cuts (the
+-- server checks nothing about where we stand; the cuts are its own).
+local function followRush(character)
+	local S = Config.KatanaSkills.KatanaRush
+	local clip = AnimationData.Katana_RushFollow
+	local track = getTrack(character, "Katana_RushFollow")
+	local _, _, root = getCharacter()
+	if not clip or not track or not root then
+		return
+	end
+	local victim = rushVictim and os.clock() - rushVictim.at < 3 and rushVictim.model
+	if not victim or not victim.Parent then
+		victim = nil
+		local best = 14
+		for _, model in ipairs(CollectionService:GetTagged("Combatant")) do
+			local other = model ~= character and model:FindFirstChild("HumanoidRootPart")
+			if other and (other.Position - root.Position).Magnitude < best then
+				victim, best = model, (other.Position - root.Position).Magnitude
+			end
+		end
+	end
+	rushVictim = nil
+	local t = os.clock()
+	predicted.attacking = true
+	predicted.busyUntil = math.max(predicted.busyUntil, t + clip.recover)
+	predicted.lockFacingUntil = t + clip.recover
+	bufferedSkill = nil
+	Motion.stop(root)
+	local victimRoot = victim and victim:FindFirstChild("HumanoidRootPart")
+	if not victimRoot then
+		return
+	end
+	ghostThrough(clip.recover)
+	local connections = {}
+	for i, marker in ipairs({ "Cut1", "Cut2", "Cut3" }) do
+		table.insert(connections, track:GetMarkerReachedSignal(marker):Connect(function()
+			local _, _, body = getCharacter()
+			if not body or not victimRoot.Parent or character:GetAttribute("CombatState") ~= "Attacking" then
+				return
+			end
+			local centre = victimRoot.Position
+			local around = (body.Position - centre) * FLAT
+			around = around.Magnitude > 0.1 and around.Unit or -victimRoot.CFrame.LookVector * FLAT
+			local direction = CFrame.Angles(0, math.rad(S.blinkAngles[i] or 0), 0):VectorToWorldSpace(around.Unit)
+			local at = Vector3.new(centre.X, body.Position.Y, centre.Z) + direction * S.blinkRadius
+			body.CFrame = CFrame.lookAt(at, Vector3.new(centre.X, at.Y, centre.Z))
+			body.AssemblyLinearVelocity = Vector3.zero
+		end))
+	end
+	task.delay(clip.recover + 0.5, function()
+		for _, connection in ipairs(connections) do
+			connection:Disconnect()
+		end
+	end)
+end
+
+Remotes.Anim.OnClientEvent:Connect(function(model, name, stop)
+	if not stop and name == "Katana_RushFollow" and model == player.Character then
+		followRush(model)
+	end
+end)
 
 local function doKatanaSkill(kind)
 	local character = getCharacter()

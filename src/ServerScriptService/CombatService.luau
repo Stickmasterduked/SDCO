@@ -441,6 +441,7 @@ local function resolveHit(attacker, defender, attack, kind, attackId, clientDriv
 	clearStunParry(defender)
 	local heavy = attack.heavy or attack.knockback >= 18 or attack.launcher or attack.slam
 	effect(heavy and "HeavyHit" or "Hit", contact, attacker, defender, kind, attackId)
+	defender.lastCleanHit = { by = attacker, at = t }
 	if damage(defender, attack.damage) then
 		releaseJuggle(defender)
 		return
@@ -525,6 +526,36 @@ local function resolveHit(attacker, defender, attack, kind, attackId, clientDriv
 	end
 end
 
+------------------------------------------------------------------------
+-- Lumen Rush's hit and miss (the rest of the skill code is further down)
+
+-- a share of the victim's max health (admin overrides still win)
+local function shareOf(attacker, victim, fraction)
+	return Config.damageFor(attacker.model, victim.humanoid.MaxHealth * fraction)
+end
+
+-- The dash's cut: it holds them for the follow-up instead of knocking back.
+local function rushCut(c, target, attack)
+	local def = table.clone(attack)
+	def.damage = shareOf(c, target, Config.KatanaSkills.KatanaRush.cutFraction)
+	def.knockback, def.launch, def.hitstun, def.react = 0, 0, 1.0, "HitFront"
+	return def
+end
+
+-- A whiffed Z: the swing carries you into a guard break.
+local function rushStagger(c)
+	local S = Config.KatanaSkills.KatanaRush
+	c.attack = nil
+	c.combo = 0
+	c.blockReadyAt = now() + S.staggerOnMiss + Config.BlockCooldown
+	stopMotion(c)
+	setState(c, "GuardBroken", S.staggerOnMiss)
+	playAnim(c, "GuardBreak")
+	effect("GuardBreak", c.root.Position, c, c, "KatanaRushStagger")
+end
+
+local rushFollow -- defined with the katana skills below
+
 -- `attackId` is the client's input sequence number for a player's strike;
 -- with it, that client reports the hit itself (see claimHit).
 local function startAttack(c, kind, predicted, attackId, inheritedSpeed)
@@ -566,6 +597,15 @@ local function startAttack(c, kind, predicted, attackId, inheritedSpeed)
 		stopHover(c)
 	end
 
+	-- Lumen Rush: a miss (nobody cut, or they dashed through it) staggers you
+	if attack.rush then
+		task.delay(hitDelay + 0.4, function()
+			if c.token == token and c.attack == a and not a.contact and isAlive(c) then
+				rushStagger(c)
+			end
+		end)
+	end
+
 	if clientDriven then
 		-- The attacker's client lunges, finds the hit and reports it; here we
 		-- only end the strike on time.
@@ -603,7 +643,16 @@ local function startAttack(c, kind, predicted, attackId, inheritedSpeed)
 		local target = findTarget(c, attack)
 		if target then
 			a.contact = true
-			resolveHit(c, target, attack, kind)
+			if attack.rush then
+				local before = now()
+				resolveHit(c, target, rushCut(c, target, attack), kind)
+				if target.lastCleanHit and target.lastCleanHit.by == c and target.lastCleanHit.at >= before then
+					rushFollow(c, target)
+					return
+				end
+			else
+				resolveHit(c, target, attack, kind)
+			end
 		end
 		if c.token ~= token then
 			return
@@ -676,6 +725,14 @@ function CombatService.claimHit(c, attackId, targetModel, startCF)
 	-- connected (a dodge through i-frames still counts as a whiff)
 	if now() >= target.iframesUntil then
 		a.contact = true
+	end
+	if attack.rush then
+		local before = now()
+		resolveHit(c, target, rushCut(c, target, attack), a.kind, attackId, true)
+		if target.lastCleanHit and target.lastCleanHit.by == c and target.lastCleanHit.at >= before then
+			rushFollow(c, target)
+		end
+		return true
 	end
 	resolveHit(c, target, attack, a.kind, attackId, true)
 	return true
@@ -1052,6 +1109,64 @@ function CombatService.rushDistance(c)
 	return S.maxDistance
 end
 
+-- The follow-up after the dash's cut lands: three more cuts, then the
+-- explosion that launches them. Everyone plays Katana_RushFollow (the
+-- owner's client moves its own body to each cut; dummies are moved here).
+rushFollow = function(c, victim)
+	local S = Config.KatanaSkills.KatanaRush
+	local base = Config.Attacks.KatanaRush
+	local clip = AnimationData.Katana_RushFollow
+	local m = clip.markers
+	local t = now()
+	local a = { kind = "KatanaRushFollow", def = { feintable = false, walkSpeed = 0 }, started = t, hitAt = t + m.Boom, speed = 1, contact = true }
+	c.attack = a
+	local token = setState(c, "Attacking")
+	c.nextActionAt = t + clip.recover
+	playAnim(c, "Katana_RushFollow")
+	local cuts = { { m.Cut1, "HitFront" }, { m.Cut2, "HitFrontB" }, { m.Cut3, "HitFrontC" } }
+	for i, cut in ipairs(cuts) do
+		task.delay(cut[1], function()
+			if c.token ~= token or not isAlive(c) or not isAlive(victim) then
+				return
+			end
+			if not c.player then
+				-- dummies blink to the cut themselves
+				local around = flat(c.root.Position - victim.root.Position)
+				around = around.Magnitude > 0.1 and around.Unit or Vector3.xAxis
+				local angle = math.rad(S.blinkAngles[i] or 0)
+				local dir = CFrame.Angles(0, angle, 0):VectorToWorldSpace(around)
+				local at = victim.root.Position + dir * S.blinkRadius
+				c.root.CFrame = CFrame.lookAt(at, Vector3.new(victim.root.Position.X, at.Y, victim.root.Position.Z))
+			end
+			local def = table.clone(base)
+			def.damage = shareOf(c, victim, S.cutFraction)
+			def.knockback, def.launch, def.hitstun, def.react = 0, 0, 0.7, cut[2]
+			resolveHit(c, victim, def, "KatanaRushCut")
+		end)
+	end
+	task.delay(m.Boom, function()
+		if c.token ~= token or not isAlive(c) or not isAlive(victim) then
+			return
+		end
+		local def = table.clone(base)
+		def.damage = shareOf(c, victim, S.boomFraction)
+		def.knockback, def.launch, def.hitstun, def.react = 78, 32, 1.05, "Knockback"
+		resolveHit(c, victim, def, "KatanaRushBoom", nil, false, {
+			contact = victim.root.Position,
+			direction = (function()
+				local d = flat(victim.root.Position - c.root.Position)
+				return d.Magnitude > 0.1 and d.Unit or flat(c.root.CFrame.LookVector).Unit
+			end)(),
+		})
+	end)
+	task.delay(clip.recover, function()
+		if c.token == token then
+			c.attack = nil
+			setState(c, "Idle")
+		end
+	end)
+end
+
 function CombatService.katanaRush(c, predicted, attackId)
 	local t = now()
 	if not katanaReady(c) or not canStartAction(c, t) or t < c.rushReadyAt then
@@ -1087,11 +1202,35 @@ local function flyCrescent(c, attack, a, onEnd)
 	hitBox.FilterType = Enum.RaycastFilterType.Include
 	local passed = {} -- dashed through it: it carries on past them
 
+	-- every explosion catches everyone close (not the caster, not whoever
+	-- the crescent itself already hit)
+	local function blast(point, skip)
+		for _, other in pairs(combatants) do
+			if other ~= c and other ~= skip and isAlive(other) and now() >= other.iframesUntil then
+				local offset = flat(other.root.Position - point)
+				if offset.Magnitude <= S.blastRadius and math.abs(other.root.Position.Y - point.Y) <= S.blastRadius then
+					local def = table.clone(attack)
+					def.damage = shareOf(c, other, S.damageFraction)
+					def.knockback, def.launch, def.hitstun, def.react = 40, 16, 0.8, "Knockback"
+					a.contact = true
+					resolveHit(c, other, def, "KatanaCrescentBlast", nil, false, {
+						contact = other.root.Position,
+						direction = offset.Magnitude > 0.1 and offset.Unit or direction,
+					})
+				end
+			end
+		end
+	end
+
 	local travelled = 0
 	local last = now()
 	local connection
-	local function finish()
+	local function finish(hitSomeone)
 		connection:Disconnect()
+		if not hitSomeone then
+			-- out of range or into a wall: it still explodes there
+			blast(origin + direction * (travelled + LEAD * 0.5) + Vector3.new(0, -2, 0))
+		end
 		onEnd()
 	end
 	connection = RunService.Heartbeat:Connect(function()
@@ -1136,11 +1275,19 @@ local function flyCrescent(c, attack, a, onEnd)
 				else
 					a.contact = true
 					local at = math.max(0, bestAlong - LEAD * 0.5)
-					resolveHit(c, victim, attack, "KatanaCrescent", nil, false, {
+					local def = table.clone(attack)
+					def.damage = shareOf(c, victim, S.damageFraction)
+					resolveHit(c, victim, def, "KatanaCrescent", nil, false, {
 						contact = origin + direction * at,
 						direction = direction,
 					})
-					finish()
+					-- it drives on through them, then explodes
+					local hitVictim = victim
+					task.delay(S.carryTime, function()
+						local point = hitVictim.root.Position
+						blast(point, hitVictim)
+					end)
+					finish(true)
 					return
 				end
 			end

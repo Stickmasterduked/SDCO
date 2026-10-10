@@ -39,7 +39,7 @@ PRELUDE = 'local __rbx = require("./rbx"); local Vector3, CFrame = __rbx.Vector3
 DUMP = '''
 local Data = require("./AnimationData")
 local out = {}
-for _, name in ipairs({ "Katana_Rush", "Katana_Crescent" }) do
+for _, name in ipairs({ "Katana_Rush", "Katana_Crescent", "Katana_RushFollow" }) do
 	local c = Data[name]
 	local keys = {}
 	for _, key in ipairs(c.keys) do

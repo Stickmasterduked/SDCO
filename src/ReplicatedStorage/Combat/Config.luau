@@ -223,9 +223,11 @@ Config.Attacks = {
 	-- attacker's client at the clip's Hit marker like any strike; claimSlack
 	-- widens the server's check because the dash outruns its view of you.
 	KatanaRush = {
-		anim = "Katana_Rush", damage = 14, posture = 35, hitstun = 1.05, walkSpeed = 0,
-		range = 8.5, width = 9, height = 7, knockback = 78, launch = 32,
-		react = "Knockback", heavy = true, feintable = false, katanaSkill = true,
+		anim = "Katana_Rush", damage = 14, posture = 35, hitstun = 1.0, walkSpeed = 0,
+		range = 8.5, width = 9, height = 7, knockback = 0, launch = 0,
+		-- the dash's cut holds them for the follow-up (CombatService.rushFollow
+		-- launches them on its final explosion)
+		react = "HitFront", heavy = true, feintable = false, katanaSkill = true,
 		cooldown = 12, readyField = "rushReadyAt", claimSlack = 14,
 		-- the dash cuts THROUGH them: the hit is anyone the dash path passed
 		rush = true,
@@ -308,12 +310,21 @@ Config.KatanaSkills = {
 		targetRange = 30, -- picks the opponent you're facing within this ...
 		targetAngle = 40, -- ... and this many degrees of your aim
 		hitStop = 0.2,
+		-- damage is a share of the victim's max health: 15% in all
+		cutFraction = 0.025, -- the dash's cut, and each of the 3 follow-up cuts
+		boomFraction = 0.05, -- the explosion that ends it
+		blinkRadius = 4.2, -- the follow-up cuts come from around them at this distance
+		blinkAngles = { 75, 205, 320 }, -- degrees around the victim, from where you stand
+		staggerOnMiss = 2, -- a whiffed Z leaves you guard-broken this long
 	},
 	KatanaCrescent = {
 		key = "X",
 		speed = 92, -- studs/s
 		range = 72,
 		hitStop = 0.16, -- the victim only; the caster is far away
+		damageFraction = 0.04, -- every explosion that hits: a share of the victim's max health
+		blastRadius = 11, -- each crescent's explosion catches everyone this close
+		carryTime = 0.22, -- a crescent that hits drives on this long, then explodes
 	},
 }
 
