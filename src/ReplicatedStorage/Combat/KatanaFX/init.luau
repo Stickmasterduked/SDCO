@@ -1272,6 +1272,7 @@ local function newProjectile(model, origin, direction, spec)
 	light.Shadows = false
 	light.Parent = self.lightAttachment
 	self.nextSpark = 0
+	self.nextTrail = os.clock() + (P.trail and P.trail.every or 0)
 	self.params = groundParams()
 	return self
 end
@@ -1423,6 +1424,15 @@ local function updateProjectile(p, dt)
 		p.grooveCore:set(pts, ws, as)
 	end
 	p.lightAttachment.Position = centre.Position
+	-- shockwave rings, glints and dust left along the flight path
+	if P.trail and not p.stopped and now >= p.nextTrail then
+		p.nextTrail = now + P.trail.every
+		local ctx = KatanaFX._projectileContext(p, p.model, nil)
+		local start = now
+		playLayers(P.trail.layers, ctx, function()
+			return os.clock() - start
+		end)
+	end
 	-- sparks kicked off the floor where the lower tip drags
 	if floor and not p.stopped and now >= p.nextSpark then
 		p.nextSpark = now + P.sparkEvery
@@ -1482,6 +1492,8 @@ local function projectileContext(p, attacker, defender)
 		defender = defender,
 	}
 end
+
+KatanaFX._projectileContext = projectileContext
 
 function KatanaFX._projectileEnded(p, reason)
 	if reason == "range" or reason == "wall" then
@@ -1719,12 +1731,14 @@ function Session:update(dt)
 
 	-- the Hit marker: remember where the blade was and which way it cut
 	local hitAt = self.markers.Hit
-	if hitAt and not self.hitSnapshot and t >= hitAt and tip then
+	if hitAt and not self.hitSnapshot and t >= hitAt then
+		-- (without a blade part to read, fall back on the body)
+		local rootCF = self.root.CFrame
 		self.hitSnapshot = {
 			at = os.clock(),
-			tip = tip,
-			sweep = self.sweep or -self.root.CFrame.RightVector,
-			blade = (tip - base).Unit,
+			tip = tip or rootCF:PointToWorldSpace(Vector3.new(0, 0, -4.5)),
+			sweep = self.sweep or -rootCF.RightVector,
+			blade = (tip and base) and (tip - base).Unit or rootCF.LookVector,
 		}
 		self:onHitMarker()
 	end

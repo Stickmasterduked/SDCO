@@ -225,113 +225,180 @@ RUSH = {
 
 CHORD = 17.0  # the travelling crescent's height (tip to tip)
 
+GOLD = (255, 226, 170)
+
+# Moonfall's explosion, in beats. `scale` shrinks it for a crescent that ends
+# against a wall or at the end of its range (no victim, still a detonation).
+def explosion(scale=1.0, victim=True):
+    k = scale
+    layers = [
+        # beat 0: the tall splitting flash, a hot core, a star flare
+        {"type": "stroke", "at": 0.0, "life": 0.16, "frame": "proj", "shape": "line", "points": [[-14 * k, 0, 0], [0, 0, 0], [14 * k, 0, 0]], "billboard": 1,
+         "width": 2.0 * k, "taper": [1.0, 1.0], "widthScale": keys((0, 0.4), (0.25, 1.3), (1, 0.1)), "alpha": keys((0, 1), (0.5, 0.9), (1, 0)),
+         "skins": [{"w": 0.25, "color": HOT, "alpha": 1, "tex": "core", "brightness": 6}, {"w": 1.0, "color": WHITE, "alpha": 0.5, "tex": "soft", "brightness": 3}, {"w": 2.4, "color": CYAN, "alpha": 0.15, "tex": "soft"}], "segments": 6},
+        {"type": "glow", "at": 0.0, "life": 0.12, "frame": "proj", "sprite": "core", "size": keys((0, 6 * k), (0.3, 13 * k), (1, 7 * k)),
+         "alpha": keys((0, 0), (0.35, 0.05), (1, 1)), "color": keys((0, WHITE), (1, LAVENDER)), "brightness": 6},
+        {"type": "glow", "at": 0.0, "life": 0.18, "frame": "proj", "sprite": "star", "size": keys((0, 9 * k), (0.3, 22 * k), (1, 6 * k)),
+         "alpha": keys((0, 0), (0.3, 0.1), (1, 1)), "color": keys((0, WHITE), (1, PEACH)), "rotation": 0, "brightness": 5},
+        {"type": "glow", "at": 0.0, "life": 0.16, "frame": "proj", "sprite": "streak", "size": keys((0, 14 * k), (0.3, 36 * k), (1, 20 * k)),
+         "alpha": keys((0, 0.1), (0.4, 0.2), (1, 1)), "color": keys((0, WHITE), (1, CYAN)), "rotation": 0, "brightness": 4},
+        {"type": "sound", "at": 0.0, "name": "KatanaCrack", "volume": 1.0, "pitch": 0.85},
+        {"type": "sound", "at": 0.0, "name": "KatanaBurst", "volume": 1.0, "pitch": 0.6},
+        # beat 1: starburst, prism halo, the body of the blast
+        {"type": "glow", "at": 0.03, "life": 0.22, "frame": "proj", "sprite": "burst", "size": keys((0, 10 * k), (0.3, 26 * k), (1, 30 * k)),
+         "alpha": keys((0, 0), (0.35, 0.2), (1, 1)), "color": keys((0, WHITE), (1, LAVENDER)), "rotation": 8, "spin": 50, "brightness": 4},
+        {"type": "glow", "at": 0.04, "life": 0.42, "frame": "proj", "sprite": "prism", "size": keys((0, 12 * k), (1, 30 * k)),
+         "alpha": keys((0, 0.15), (0.4, 0.4), (1, 1)), "color": keys((0, WHITE), (1, WHITE)), "brightness": 2.4},
+        {"type": "glow", "at": 0.05, "life": 0.5, "frame": "proj", "sprite": "glow", "size": keys((0, 10 * k), (0.3, 30 * k), (1, 38 * k)),
+         "alpha": keys((0, 0.35), (0.3, 0.55), (1, 1)), "color": keys((0, WHITE), (0.25, LAVENDER), (0.6, VIOLET), (1, DEEP)), "brightness": 2},
+        {"type": "glow", "at": 0.08, "life": 0.6, "frame": "ground", "offset": [0, 1.5, 0], "sprite": "glow", "size": keys((0, 14 * k), (1, 34 * k)),
+         "alpha": keys((0, 0.55), (1, 1)), "color": keys((0, CYAN), (1, VIOLET)), "brightness": 1.4},
+        {"type": "sound", "at": 0.05, "name": "KatanaBurst", "volume": 0.9, "pitch": 0.85},
+        # beat 2: crescents erupting forward, splitting
+        {"type": "stroke", "at": 0.02, "life": 0.45, "frame": "proj", "shape": "chord", "chord": CHORD * 1.25 * k, "sagitta": keys((0, 5 * k), (1, 9 * k)), "billboard": 0.55,
+         "move": [0, 16 * k, 0], "width": 6 * k, "taper": [1.2, 1.2], "widthScale": keys((0, 1.1), (1, 0.4)), "alpha": keys((0, 1), (0.5, 0.7), (1, 0)),
+         "erase": keys((0, 0), (0.45, 0), (1, 0.6)), "skins": [EDGE, EDGE_SOFT, BODY, SPILL], "segments": 22, "eraseMode": "centre"},
+        {"type": "stroke", "at": 0.05, "life": 0.42, "frame": "proj", "shape": "chord", "chord": CHORD * 1.55 * k, "sagitta": keys((0, 4 * k), (1, 10 * k)), "billboard": 0.5, "offset": [0, -1.5, 1.8 * k],
+         "move": [0, 10 * k, 0], "width": 4 * k, "taper": [1.3, 1.3], "widthScale": keys((0, 0.5), (0.3, 1), (1, 0.4)), "alpha": keys((0, 0.9), (1, 0)),
+         "skins": [EDGE_SOFT, {"w": 1.0, "inset": 0.4, "color": CYAN, "alpha": 0.32, "tex": "flow", "brightness": 1.6}], "segments": 20},
+        {"type": "stroke", "at": 0.08, "life": 0.42, "frame": "proj", "shape": "chord", "chord": CHORD * 1.8 * k, "sagitta": keys((0, 4 * k), (1, 11 * k)), "billboard": 0.5, "offset": [0, -2.5, -1.8 * k],
+         "move": [0, 7 * k, 0], "width": 3.4 * k, "taper": [1.3, 1.3], "widthScale": keys((0, 0.5), (0.3, 1), (1, 0.4)), "alpha": keys((0, 0.8), (1, 0)),
+         "skins": [EDGE_SOFT, {"w": 1.0, "inset": 0.4, "color": VIOLET, "alpha": 0.32, "tex": "flow", "brightness": 1.6}], "segments": 20},
+        {"type": "sprite", "at": 0.03, "life": 0.3, "frame": "proj", "sprite": "crescent", "size": keys((0, 22 * k), (1, 34 * k)),
+         "alpha": keys((0, 0.35), (0.3, 0.3), (1, 1)), "color": keys((0, WHITE), (1, LAVENDER)), "rotation": 90, "brightness": 1.6},
+        # beat 2: rays thrown out in every direction (vertical fan + ground fan)
+        {"type": "rays", "at": 0.04, "life": 0.3, "frame": "proj", "plane": "XY",
+         "rays": rays(71, 14, [i * 360 / 14 for i in range(14)], 9, 22 * k, 0.5 * k, elevation=20, start=(2.0, 4.0)),
+         "length": keys((0, 0.15), (0.3, 1), (1, 1.1)), "alpha": keys((0, 1), (0.45, 0.8), (1, 0)), "color": WHITE, "tint": LAVENDER},
+        {"type": "rays", "at": 0.06, "life": 0.34, "frame": "ground", "plane": "XZ", "origin": [0, 0.3, 0],
+         "rays": rays(73, 12, [i * 30 for i in range(12)], 10, 18 * k, 0.45 * k, elevation=6, start=(1.5, 3.0)),
+         "length": keys((0, 0.1), (0.35, 1), (1, 1.05)), "alpha": keys((0, 1), (0.5, 0.7), (1, 0)), "color": WHITE, "tint": CYAN},
+        # beat 3: shockwaves (ground and air)
+        {"type": "stroke", "at": 0.05, "life": 0.55, "frame": "ground", "shape": "ring", "plane": "ground", "radius": keys((0, 2 * k), (0.45, 16 * k), (1, 22 * k)),
+         "width": 1.1 * k, "widthScale": keys((0, 1.5), (1, 0.4)), "alpha": keys((0, 0.85), (1, 0)), "skins": [EDGE_SOFT, {"w": 1.0, "color": LAVENDER, "alpha": 0.35, "tex": "soft"}], "segments": 36},
+        {"type": "stroke", "at": 0.1, "life": 0.5, "frame": "ground", "shape": "ring", "plane": "ground", "radius": keys((0, 1.5 * k), (1, 14 * k)), "rainbow": True,
+         "width": 0.6 * k, "widthScale": keys((0, 1.2), (1, 0.3)), "alpha": keys((0, 0.65), (1, 0)), "skins": [{"w": 1.0, "color": WHITE, "alpha": 0.7, "tex": "core", "brightness": 2}], "segments": 36},
+        {"type": "stroke", "at": 0.16, "life": 0.6, "frame": "ground", "shape": "ring", "plane": "ground", "radius": keys((0, 3 * k), (1, 28 * k)),
+         "width": 0.6 * k, "widthScale": keys((0, 1.2), (1, 0.3)), "alpha": keys((0, 0.45), (1, 0)), "skins": [EDGE_SOFT], "segments": 40},
+        {"type": "stroke", "at": 0.06, "life": 0.4, "frame": "proj", "shape": "ring", "plane": "frame", "radius": keys((0, 2 * k), (0.6, 14 * k), (1, 18 * k)), "billboard": 1,
+         "width": 0.8 * k, "widthScale": keys((0, 1.4), (1, 0.4)), "alpha": keys((0, 0.8), (1, 0)), "skins": [EDGE_SOFT, {"w": 1.0, "color": LAVENDER, "alpha": 0.3, "tex": "soft"}], "segments": 32},
+        {"type": "stroke", "at": 0.12, "life": 0.34, "frame": "proj", "shape": "ring", "plane": "frame", "radius": keys((0, 1 * k), (1, 11 * k)), "billboard": 1, "rainbow": True,
+         "width": 0.55 * k, "widthScale": keys((0, 1.2), (1, 0.3)), "alpha": keys((0, 0.6), (1, 0)), "skins": [{"w": 1.0, "color": WHITE, "alpha": 0.7, "tex": "core", "brightness": 2}], "segments": 32},
+        # beat 4: rising energy, debris of light, dust, wisps
+        {"type": "risers", "at": 0.05, "frame": "ground", "count": int(22 * k), "radius": [1.0, 9 * k], "height": [8 * k, 24 * k], "speed": [55, 110],
+         "life": [0.3, 0.55], "width": 0.42 * k, "color": WHITE, "tint": LAVENDER, "seed": 13},
+        {"type": "sparks", "at": 0.03, "frame": "proj", "count": int(26 * k), "dir": [0, 1, 0], "spread": 80, "speed": [40, 95], "life": [0.35, 0.8], "size": 0.4, "drag": 4, "color": WHITE, "tint": CYAN, "sprite": "spark", "mirror": True},
+        {"type": "sparks", "at": 0.05, "frame": "proj", "count": int(18 * k), "dir": [1, 0, 0], "spread": 70, "speed": [30, 70], "life": [0.4, 0.9], "size": 0.35, "drag": 3, "color": WHITE, "tint": PINK, "sprite": "spark"},
+        {"type": "sparks", "at": 0.08, "frame": "ground", "count": int(20 * k), "dir": [0, 1, 0], "spread": 75, "speed": [14, 36], "life": [0.6, 1.2], "size": 0.3, "drag": 2.5, "color": LAVENDER, "tint": GOLD, "sprite": "glint"},
+        {"type": "dust", "at": 0.06, "frame": "ground", "count": int(26 * k), "speed": 28, "spread": 88},
+        {"type": "wisps", "at": 0.14, "frame": "proj", "billboard": 0.5, "color": WHITE, "tint": LAVENDER,
+         "wisps": wisps(51, int(16 * k), lambda r: (r.uniform(-CHORD / 2, CHORD / 2) * k, r.uniform(1, 5), r.uniform(-1, 1)),
+                        lambda r, p: (p[0] * 0.35 + r.uniform(-2, 3), r.uniform(5, 12), r.uniform(-3, 3)), 2.5, 3.2 * k, 0.55, 0.8, (0, 0.18))},
+        {"type": "light", "at": 0.0, "life": 0.7, "frame": "proj", "color": LAVENDER, "brightness": keys((0, 12), (0.2, 8), (1, 0)), "range": keys((0, 28 * k), (1, 40 * k))},
+        {"type": "sound", "at": 0.3, "name": "KatanaTail", "volume": 0.7, "pitch": 0.75},
+        # the camera: everyone near feels it; the caster too, from range
+        {"type": "camera", "at": 0.0,
+         "attacker": {"shake": 0.75 * k, "fov": -4, "impact": 0.45 * k, "flash": 0.22 * k},
+         "near": {"shake": 0.85 * k, "radius": 110},
+         **({"victim": {"shake": 0.95, "punch": [0, 1, 0, 1.2], "fov": 9, "impact": 0.7, "flash": 0.35, "roll": -6}} if victim else {})},
+        {"type": "camera", "at": 0.12, "attacker": {"shake": 0.35 * k}, "near": {"shake": 0.4 * k, "radius": 90}},
+    ]
+    return layers
+
+
+# Moonfall Crescent (X): leap, overhead slam, a huge travelling slash that explodes
+
 CRESCENT = {
     "blade": {
-        "glow": keys((0, 0.35), (0.28, 0.6), (0.6, 1.25), (0.665, 1.35), (0.705, 1.1), (0.765, 1.4), (0.9, 0.7), (1.25, 0.4), (1.42, 0.35)),
-        "halo": keys((0, 1.6), (0.28, 1.8), (0.6, 0.55), (0.705, 0.8), (0.765, 1.3), (1.0, 1.0), (1.42, 0.9)),
-        "light": keys((0, 0.0), (0.28, 0.8), (0.665, 3.2), (0.765, 3.6), (1.0, 1.0), (1.42, 0.0)),
+        "glow": keys((0, 0.35), (0.1, 0.55), (0.24, 0.8), (0.56, 1.5), (0.64, 1.3), (0.75, 1.6), (0.9, 0.8), (1.3, 0.4), (1.5, 0.35)),
+        "halo": keys((0, 1.6), (0.24, 2.0), (0.56, 0.5), (0.64, 0.8), (0.75, 1.5), (1.0, 1.1), (1.5, 0.9)),
+        "light": keys((0, 0.0), (0.24, 1.2), (0.56, 4.0), (0.75, 5.0), (1.0, 1.4), (1.5, 0.0)),
     },
-    "trails": [[0.68, 0.84, 0.22]],
+    "trails": [[0.62, 0.84, 0.24]],
     "cast": [
-        {"type": "dust", "at": 0.1, "frame": "feet", "count": 6, "speed": 9, "spread": 85},
-        {"type": "stroke", "at": 0.1, "life": 0.28, "frame": "feet", "shape": "ring", "plane": "ground", "radius": keys((0, 1), (1, 4.5)),
-         "width": 0.35, "alpha": keys((0, 0.45), (1, 0)), "skins": [EDGE_SOFT], "segments": 20},
-        {"type": "sound", "at": 0.28, "name": "KatanaGather", "volume": 0.55, "pitch": 0.92},
-        {"type": "converge", "at": 0.3, "life": 0.34, "count": 7, "radius": 5.5, "width": 0.15, "color": LAVENDER, "seed": 5},
-        {"type": "glow", "at": 0.6, "life": 0.2, "frame": "tip", "sprite": "star", "size": keys((0, 0.5), (0.3, 5.2), (1, 0.3)),
-         "alpha": keys((0, 0.2), (0.3, 0), (1, 1)), "color": keys((0, WHITE), (1, LAVENDER)), "rotation": 0, "spin": 120, "brightness": 4},
-        {"type": "sound", "at": 0.6, "name": "KatanaGlint", "volume": 0.45, "pitch": 1.4},
-        {"type": "camera", "at": 0.6, "attacker": {"fov": -2}},
-        {"type": "sound", "at": 0.705, "name": "KatanaSwing", "volume": 0.9, "pitch": 0.7},
-        # release: a hot flash where the blade lets go, a ring of displaced air
-        {"type": "glow", "at": 0.765, "life": 0.12, "frame": "release", "sprite": "core", "size": keys((0, 3), (0.3, 7), (1, 3)),
-         "alpha": keys((0, 0.1), (0.3, 0.05), (1, 1)), "color": keys((0, WHITE), (1, LAVENDER)), "brightness": 5},
-        {"type": "glow", "at": 0.765, "life": 0.14, "frame": "release", "sprite": "streak", "size": keys((0, 6), (0.3, 16), (1, 10)),
-         "alpha": keys((0, 0.2), (0.3, 0.1), (1, 1)), "color": keys((0, WHITE), (1, CYAN)), "rotation": 90, "brightness": 4},
-        {"type": "stroke", "at": 0.765, "life": 0.28, "frame": "release", "shape": "ring", "plane": "frame", "radius": keys((0, 1.5), (1, 7)), "billboard": 0.35,
-         "width": 0.45, "widthScale": keys((0, 1.3), (1, 0.4)), "alpha": keys((0, 0.75), (1, 0)), "skins": [EDGE_SOFT, {"w": 1.0, "color": LAVENDER, "alpha": 0.3, "tex": "soft"}], "segments": 24},
-        {"type": "sound", "at": 0.765, "name": "KatanaCrack", "volume": 0.75, "pitch": 1.15},
-        {"type": "sound", "at": 0.765, "name": "KatanaRushWind", "volume": 0.7, "pitch": 0.8},
-        {"type": "camera", "at": 0.765, "attacker": {"shake": 0.22, "punch": [0, 0, -1, 0.5], "fov": -4, "blur": 4}},
-        {"type": "bladewisps", "at": 0.9, "count": 4, "life": 0.6, "seed": 9},
-        {"type": "sound", "at": 0.9, "name": "KatanaTail", "volume": 0.3, "pitch": 1.25},
+        # sink: dust and a pressure ring under the feet
+        {"type": "dust", "at": 0.1, "frame": "feet", "count": 8, "speed": 11, "spread": 85},
+        {"type": "stroke", "at": 0.1, "life": 0.3, "frame": "feet", "shape": "ring", "plane": "ground", "radius": keys((0, 1), (1, 5.5)),
+         "width": 0.45, "alpha": keys((0, 0.6), (1, 0)), "skins": [EDGE_SOFT, {"w": 1.0, "color": LAVENDER, "alpha": 0.3, "tex": "soft"}], "segments": 24},
+        {"type": "sound", "at": 0.1, "name": "KatanaGather", "volume": 0.6, "pitch": 0.85},
+        # spring up: wind blasted off the floor, streaks rising with the body
+        {"type": "rays", "at": 0.22, "life": 0.24, "frame": "feet", "plane": "XZ", "origin": [0, 0.3, 0],
+         "rays": rays(81, 10, [i * 36 for i in range(10)], 12, 7, 0.3, elevation=10, start=(0.8, 1.6)),
+         "length": keys((0, 0.2), (0.35, 1), (1, 1.1)), "alpha": keys((0, 0.9), (1, 0)), "color": WHITE, "tint": LAVENDER},
+        {"type": "risers", "at": 0.22, "frame": "feet", "count": 8, "radius": [0.8, 2.6], "height": [4, 8], "speed": [30, 50],
+         "life": [0.22, 0.35], "width": 0.25, "color": WHITE, "tint": LAVENDER, "seed": 3},
+        {"type": "sound", "at": 0.22, "name": "KatanaRushWind", "volume": 0.55, "pitch": 1.1},
+        {"type": "camera", "at": 0.22, "attacker": {"fov": 4, "punch": [0, 1, 0, 0.3]}},
+        # the charge at the apex: energy pulled into the blade, the tip burning
+        {"type": "converge", "at": 0.26, "life": 0.38, "count": 12, "radius": 7, "width": 0.18, "color": LAVENDER, "seed": 5},
+        {"type": "glow", "at": 0.3, "life": 0.36, "frame": "tip", "sprite": "glow", "size": keys((0, 1), (0.85, 5.5), (1, 3)),
+         "alpha": keys((0, 0.7), (0.85, 0.25), (1, 1)), "color": keys((0, LAVENDER), (1, WHITE)), "brightness": 2},
+        {"type": "glow", "at": 0.44, "life": 0.22, "frame": "tip", "sprite": "prism", "size": keys((0, 2), (1, 7)),
+         "alpha": keys((0, 0.6), (0.5, 0.45), (1, 1)), "color": keys((0, WHITE), (1, WHITE)), "brightness": 1.6},
+        {"type": "glow", "at": 0.55, "life": 0.22, "frame": "tip", "sprite": "star", "size": keys((0, 0.5), (0.3, 7.5), (1, 0.3)),
+         "alpha": keys((0, 0.2), (0.3, 0), (1, 1)), "color": keys((0, WHITE), (1, LAVENDER)), "rotation": 0, "spin": 160, "brightness": 5},
+        {"type": "glow", "at": 0.56, "life": 0.18, "frame": "tip", "sprite": "glint", "size": keys((0, 0.5), (0.3, 4), (1, 0.3)),
+         "alpha": keys((0, 0.2), (0.3, 0), (1, 1)), "color": keys((0, WHITE), (1, CYAN)), "rotation": 45, "spin": -120, "brightness": 4},
+        {"type": "sound", "at": 0.55, "name": "KatanaGlint", "volume": 0.6, "pitch": 1.3},
+        {"type": "camera", "at": 0.55, "attacker": {"fov": -3, "shake": 0.12}},
+        {"type": "sound", "at": 0.64, "name": "KatanaSwing", "volume": 1.0, "pitch": 0.65},
+        {"type": "sound", "at": 0.64, "name": "KatanaRushWind", "volume": 0.7, "pitch": 0.75},
+        # the landing cut: the floor detonates under the blade and the slash leaves
+        {"type": "glow", "at": 0.75, "life": 0.13, "frame": "release", "sprite": "core", "size": keys((0, 4), (0.3, 9), (1, 4)),
+         "alpha": keys((0, 0.05), (0.3, 0.0), (1, 1)), "color": keys((0, WHITE), (1, LAVENDER)), "brightness": 6},
+        {"type": "glow", "at": 0.75, "life": 0.16, "frame": "release", "sprite": "streak", "size": keys((0, 8), (0.3, 22), (1, 12)),
+         "alpha": keys((0, 0.1), (0.3, 0.05), (1, 1)), "color": keys((0, WHITE), (1, CYAN)), "rotation": 90, "brightness": 5},
+        {"type": "glow", "at": 0.75, "life": 0.18, "frame": "release", "sprite": "burst", "size": keys((0, 5), (0.3, 13), (1, 15)),
+         "alpha": keys((0, 0.1), (0.35, 0.2), (1, 1)), "color": keys((0, WHITE), (1, LAVENDER)), "spin": 60, "brightness": 4},
+        {"type": "stroke", "at": 0.75, "life": 0.32, "frame": "release", "shape": "ring", "plane": "frame", "radius": keys((0, 1.5), (1, 9)), "billboard": 0.35,
+         "width": 0.6, "widthScale": keys((0, 1.3), (1, 0.4)), "alpha": keys((0, 0.85), (1, 0)), "skins": [EDGE_SOFT, {"w": 1.0, "color": LAVENDER, "alpha": 0.32, "tex": "soft"}], "segments": 28},
+        {"type": "stroke", "at": 0.76, "life": 0.42, "frame": "feet", "shape": "ring", "plane": "ground", "radius": keys((0, 1.5), (0.5, 10), (1, 13)),
+         "width": 0.8, "widthScale": keys((0, 1.4), (1, 0.4)), "alpha": keys((0, 0.75), (1, 0)), "skins": [EDGE_SOFT, {"w": 1.0, "color": LAVENDER, "alpha": 0.32, "tex": "soft"}], "segments": 32},
+        {"type": "rays", "at": 0.75, "life": 0.26, "frame": "feet", "plane": "XZ", "origin": [0, 0.3, -3],
+         "rays": rays(83, 9, [270, 250, 290, 230, 310], 10, 14, 0.42, elevation=6, start=(1.0, 2.0)),
+         "length": keys((0, 0.15), (0.3, 1), (1, 1.1)), "alpha": keys((0, 1), (0.5, 0.7), (1, 0)), "color": WHITE, "tint": CYAN},
+        {"type": "sparks", "at": 0.75, "frame": "release", "count": 18, "dir": [0, 1, 0], "spread": 70, "speed": [25, 60], "life": [0.3, 0.6], "size": 0.32, "drag": 4, "color": WHITE, "tint": LAVENDER, "sprite": "spark"},
+        {"type": "dust", "at": 0.76, "frame": "feet", "count": 14, "speed": 22, "spread": 88},
+        {"type": "light", "at": 0.75, "life": 0.4, "frame": "release", "color": LAVENDER, "brightness": keys((0, 8), (1, 0)), "range": keys((0, 18), (1, 24))},
+        {"type": "sound", "at": 0.75, "name": "KatanaCrack", "volume": 0.9, "pitch": 1.05},
+        {"type": "sound", "at": 0.75, "name": "KatanaBurst", "volume": 0.7, "pitch": 1.1},
+        {"type": "camera", "at": 0.75, "attacker": {"shake": 0.6, "punch": [0, -0.4, -1, 0.75], "fov": -6, "impact": 0.35, "blur": 6, "flash": 0.12},
+         "near": {"shake": 0.4, "radius": 45}},
+        {"type": "bladewisps", "at": 0.9, "count": 6, "life": 0.7, "seed": 9},
+        {"type": "sound", "at": 0.9, "name": "KatanaTail", "volume": 0.4, "pitch": 1.2},
     ],
     # the travelling blade of light
     "projectile": {
         "speed": 92, "range": 72, "height": 0.4,  # chord bottom this far above the floor
         "chord": CHORD,
         "grow": keys((0, 0.45), (0.12, 1.0)),  # scale over age (seconds)
-        "sagitta": keys((0, 2.0), (0.25, 4.2), (0.8, 5.0)),  # bulge over age: the curve deepens as it flies
-        "width": 4.6, "taper": [1.25, 1.25],
-        "pulse": [0.08, 11],  # width breathing: amplitude, rad/s
+        "sagitta": keys((0, 2.0), (0.25, 4.4), (0.8, 5.4)),  # bulge over age: the curve deepens as it flies
+        "width": 5.2, "taper": [1.25, 1.25],
+        "pulse": [0.1, 13],  # width breathing: amplitude, rad/s
         "billboard": 0.55,
         "skins": [EDGE, EDGE_SOFT,
-                  {"w": 1.0, "inset": 0.45, "color": LAVENDER, "alpha": 0.4, "tex": "flow", "brightness": 1.5, "flow": 2.6},
-                  {"w": 0.7, "inset": 0.75, "color": CYAN, "alpha": 0.22, "tex": "flow", "brightness": 1.3, "flow": -1.8},
-                  {"w": 2.0, "inset": 0.55, "color": VIOLET, "alpha": 0.12, "tex": "soft"}],
-        # prismatic fringes riding the edge
-        "fringes": [{"offset": 0.28, "color": PINK, "alpha": 0.45, "w": 0.22}, {"offset": -0.3, "color": CYAN, "alpha": 0.45, "w": 0.22}],
-        # wake: fading echoes of the arc left behind, tapered
-        "wake": {"count": 4, "spacing": 1.7, "shrink": 0.1, "alpha": 0.55, "color": LAVENDER},
-        "groove": {"life": 0.24, "width": 0.8, "color": LAVENDER},
-        "light": {"color": LAVENDER, "brightness": 3, "range": 20},
-        "sparkEvery": 0.03,
-        "fade": 0.18,  # dissolving at the end of its range
-        "segments": 22,
+                  {"w": 1.0, "inset": 0.45, "color": LAVENDER, "alpha": 0.45, "tex": "flow", "brightness": 1.6, "flow": 2.6},
+                  {"w": 0.7, "inset": 0.75, "color": CYAN, "alpha": 0.26, "tex": "flow", "brightness": 1.4, "flow": -1.8},
+                  {"w": 2.2, "inset": 0.55, "color": VIOLET, "alpha": 0.14, "tex": "soft"}],
+        "fringes": [{"offset": 0.3, "color": PINK, "alpha": 0.5, "w": 0.24}, {"offset": -0.32, "color": CYAN, "alpha": 0.5, "w": 0.24}],
+        "wake": {"count": 5, "spacing": 1.6, "shrink": 0.09, "alpha": 0.6, "color": LAVENDER},
+        "groove": {"life": 0.3, "width": 1.0, "color": LAVENDER},
+        "light": {"color": LAVENDER, "brightness": 4, "range": 24},
+        "sparkEvery": 0.025,
+        "fade": 0.18,
+        "segments": 24,
+        # every `every` seconds of flight these spawn where the crescent is
+        "trail": {"every": 0.11, "layers": [
+            {"type": "stroke", "at": 0.0, "life": 0.32, "frame": "proj", "shape": "ring", "plane": "frame", "radius": keys((0, 3), (1, 9)), "billboard": 0.25,
+             "width": 0.35, "widthScale": keys((0, 1.2), (1, 0.3)), "alpha": keys((0, 0.45), (1, 0)), "skins": [EDGE_SOFT], "segments": 24},
+            {"type": "glow", "at": 0.0, "life": 0.25, "frame": "proj", "sprite": "glint", "offset": [6, 2, 0], "size": keys((0, 0.5), (0.3, 2.2), (1, 0.2)),
+             "alpha": keys((0, 0.3), (0.3, 0.1), (1, 1)), "color": keys((0, WHITE), (1, CYAN)), "spin": 200, "brightness": 3},
+            {"type": "dust", "at": 0.0, "frame": "ground", "count": 3, "speed": 10, "spread": 80},
+        ]},
     },
-    # hitting someone: tall splitting flash, a vertical eruption that keeps
-    # going forward, ground shockwave, rising streaks
-    "impact": [
-        {"type": "stroke", "at": 0.0, "life": 0.16, "frame": "proj", "shape": "line", "points": [[-13, 0, 0], [0, 0, 0], [13, 0, 0]], "billboard": 1,
-         "width": 1.6, "taper": [1.0, 1.0], "widthScale": keys((0, 0.4), (0.25, 1.3), (1, 0.1)), "alpha": keys((0, 1), (0.5, 0.9), (1, 0)),
-         "skins": [{"w": 0.25, "color": HOT, "alpha": 1, "tex": "core", "brightness": 6}, {"w": 1.0, "color": WHITE, "alpha": 0.5, "tex": "soft", "brightness": 3}, {"w": 2.4, "color": CYAN, "alpha": 0.15, "tex": "soft"}], "segments": 6},
-        {"type": "glow", "at": 0.0, "life": 0.12, "frame": "proj", "sprite": "core", "size": keys((0, 5), (0.3, 10), (1, 6)),
-         "alpha": keys((0, 0), (0.35, 0.05), (1, 1)), "color": keys((0, WHITE), (1, LAVENDER)), "brightness": 6},
-        {"type": "glow", "at": 0.0, "life": 0.16, "frame": "proj", "sprite": "star", "size": keys((0, 7), (0.3, 15), (1, 5)),
-         "alpha": keys((0, 0), (0.3, 0.1), (1, 1)), "color": keys((0, WHITE), (1, PEACH)), "rotation": 0, "brightness": 5},
-        {"type": "sound", "at": 0.0, "name": "KatanaCrack", "volume": 1.0, "pitch": 0.85},
-        {"type": "camera", "at": 0.0,
-         "attacker": {"shake": 0.32, "impact": 0.4, "flash": 0.18},
-         "victim": {"shake": 0.7, "punch": [0, 1, 0, 1.0], "fov": 7, "impact": 0.65, "flash": 0.32, "roll": -4},
-         "near": {"shake": 0.45, "radius": 70}},
-        {"type": "glow", "at": 0.03, "life": 0.36, "frame": "proj", "sprite": "prism", "size": keys((0, 8), (1, 18)),
-         "alpha": keys((0, 0.2), (0.4, 0.45), (1, 1)), "color": keys((0, WHITE), (1, WHITE)), "brightness": 2},
-        {"type": "sound", "at": 0.04, "name": "KatanaBurst", "volume": 1.0, "pitch": 0.75},
-        # the eruption: the crescent bursts forward, bigger, and splits
-        {"type": "stroke", "at": 0.02, "life": 0.42, "frame": "proj", "shape": "chord", "chord": CHORD * 1.25, "sagitta": keys((0, 5), (1, 8)), "billboard": 0.55,
-         "move": [0, 14, 0], "width": 5.5, "taper": [1.2, 1.2], "widthScale": keys((0, 1.1), (1, 0.4)), "alpha": keys((0, 1), (0.5, 0.7), (1, 0)),
-         "erase": keys((0, 0), (0.5, 0), (1, 0.5)), "skins": [EDGE, EDGE_SOFT, BODY, SPILL], "segments": 22, "eraseMode": "centre"},
-        {"type": "stroke", "at": 0.06, "life": 0.4, "frame": "proj", "shape": "chord", "chord": CHORD * 1.5, "sagitta": keys((0, 4), (1, 9)), "billboard": 0.5, "offset": [0, -1.5, 1.6],
-         "move": [0, 9, 0], "width": 3.6, "taper": [1.3, 1.3], "widthScale": keys((0, 0.5), (0.3, 1), (1, 0.4)), "alpha": keys((0, 0.85), (1, 0)),
-         "skins": [EDGE_SOFT, {"w": 1.0, "inset": 0.4, "color": CYAN, "alpha": 0.3, "tex": "flow", "brightness": 1.5}], "segments": 20},
-        {"type": "stroke", "at": 0.09, "life": 0.42, "frame": "proj", "shape": "chord", "chord": CHORD * 1.7, "sagitta": keys((0, 4), (1, 10)), "billboard": 0.5, "offset": [0, -2.5, -1.6],
-         "move": [0, 6, 0], "width": 3.0, "taper": [1.3, 1.3], "widthScale": keys((0, 0.5), (0.3, 1), (1, 0.4)), "alpha": keys((0, 0.75), (1, 0)),
-         "skins": [EDGE_SOFT, {"w": 1.0, "inset": 0.4, "color": VIOLET, "alpha": 0.3, "tex": "flow", "brightness": 1.5}], "segments": 20},
-        {"type": "glow", "at": 0.05, "life": 0.28, "frame": "proj", "sprite": "glow", "size": keys((0, 9), (0.35, 18), (1, 22)),
-         "alpha": keys((0, 0.6), (0.3, 0.75), (1, 1)), "color": keys((0, LAVENDER), (0.3, LAVENDER), (1, DEEP)), "brightness": 1.4},
-        # ground shockwave
-        {"type": "stroke", "at": 0.06, "life": 0.5, "frame": "ground", "shape": "ring", "plane": "ground", "radius": keys((0, 1.5), (0.5, 12), (1, 16)),
-         "width": 0.9, "widthScale": keys((0, 1.4), (1, 0.4)), "alpha": keys((0, 0.75), (1, 0)), "skins": [EDGE_SOFT, {"w": 1.0, "color": LAVENDER, "alpha": 0.32, "tex": "soft"}], "segments": 32},
-        {"type": "stroke", "at": 0.12, "life": 0.42, "frame": "ground", "shape": "ring", "plane": "ground", "radius": keys((0, 1), (1, 9)), "rainbow": True,
-         "width": 0.5, "widthScale": keys((0, 1.2), (1, 0.3)), "alpha": keys((0, 0.55), (1, 0)), "skins": [{"w": 1.0, "color": WHITE, "alpha": 0.7, "tex": "core", "brightness": 2}], "segments": 32},
-        {"type": "dust", "at": 0.06, "frame": "ground", "count": 14, "speed": 20, "spread": 88},
-        # rising energy streaks
-        {"type": "risers", "at": 0.05, "frame": "ground", "count": 12, "radius": [1.0, 6.5], "height": [6, 16], "speed": [40, 80],
-         "life": [0.25, 0.45], "width": 0.35, "color": WHITE, "tint": LAVENDER, "seed": 13},
-        {"type": "wisps", "at": 0.12, "frame": "proj", "billboard": 0.5, "color": WHITE, "tint": LAVENDER,
-         "wisps": wisps(51, 10, lambda r: (r.uniform(-CHORD / 2, CHORD / 2), r.uniform(1, 4), r.uniform(-0.6, 0.6)),
-                        lambda r, p: (p[0] * 0.25 + r.uniform(0, 3), r.uniform(4, 9), r.uniform(-2, 2)), 2.5, 3.0, 0.5, 0.6, (0, 0.12))},
-        {"type": "sparks", "at": 0.03, "frame": "proj", "count": 18, "dir": [0, 1, 0], "spread": 50, "speed": [30, 70], "life": [0.3, 0.7], "size": 0.35, "drag": 5, "color": WHITE, "tint": CYAN, "sprite": "spark"},
-        {"type": "light", "at": 0.0, "life": 0.5, "frame": "proj", "color": LAVENDER, "brightness": keys((0, 9), (0.2, 6), (1, 0)), "range": keys((0, 22), (1, 30))},
-        {"type": "sound", "at": 0.25, "name": "KatanaTail", "volume": 0.6, "pitch": 0.8},
-    ],
-    # out of range (or into a wall): the blade of light comes apart
-    "dissolve": [
-        {"type": "wisps", "at": 0.0, "frame": "proj", "billboard": 0.5, "color": WHITE, "tint": LAVENDER,
-         "wisps": wisps(61, 8, lambda r: (r.uniform(-CHORD / 2, CHORD / 2), r.uniform(2, 4.5), 0),
-                        lambda r, p: (p[0] * 0.15, r.uniform(6, 14), r.uniform(-1.5, 1.5)), 1.5, 3.0, 0.45, 0.5, (0, 0.1))},
-        {"type": "sound", "at": 0.0, "name": "KatanaTail", "volume": 0.35, "pitch": 1.1},
-    ],
+    "impact": explosion(1.0, True),
+    # out of range (or into a wall): it still detonates, a little smaller
+    "dissolve": explosion(0.7, False),
 }
 
 SCORE = {"Katana_Rush": RUSH, "Katana_Crescent": CRESCENT}
@@ -340,8 +407,12 @@ SCORE = {"Katana_Rush": RUSH, "Katana_Crescent": CRESCENT}
 def _normalise():
     """Sprite layers fade by transparency (like ParticleEmitter); strokes by alpha."""
     for spec in SCORE.values():
-        for key in ("cast", "impact", "whiff", "dissolve"):
-            for layer in spec.get(key, []):
+        lists = [spec.get(key, []) for key in ("cast", "impact", "whiff", "dissolve")]
+        trail = spec.get("projectile", {}).get("trail")
+        if trail:
+            lists.append(trail["layers"])
+        for layers in lists:
+            for layer in layers:
                 if layer["type"] in ("glow", "sprite") and "alpha" in layer:
                     layer["transparency"] = layer.pop("alpha")
 

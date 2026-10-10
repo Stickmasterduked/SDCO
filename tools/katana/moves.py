@@ -93,43 +93,43 @@ RUSH = {
 # Move 2: overhead cut that launches a huge slash ------------------------------
 CRESCENT = {
     "name": "Katana_Crescent",
-    "length": 1.42,
-    "recover": 1.1,
-    "markers": {"Plant": 0.1, "Gather": 0.3, "Swing": 0.705, "Hit": 0.765, "Finish": 0.88, "Settle": 1.1},
+    "length": 1.5,
+    "recover": 1.14,
+    "markers": {"Plant": 0.1, "Gather": 0.24, "Glint": 0.56, "Swing": 0.64, "Hit": 0.75, "Finish": 0.88, "Settle": 1.12},
     "keys": [
         {"t": 0.0, "ready": True},
-        # plant: feet spread, weight settles, blade dips to the middle guard
-        {"t": 0.1, "torso": [-11, 6, 1, 0, 0.05], "legs": ((-26, 12), (26, 11)),
-         "aim": (0.12, -0.12, -0.98), "blade": (0.0, 0.32, -0.95), "axis": OVERHEAD},
-        # rising: chest opens, arms lift the blade straight up
-        {"t": 0.28, "torso": [0, 2, 0, 0, 0.1], "legs": ((-24, 11), (25, 11)), "head": [6, 0, 0],
-         "aim": (0.1, 0.72, -0.68), "blade": (0.02, 0.99, 0.12), "axis": OVERHEAD},
-        # overhead: torso extended, blade back over the head
-        {"t": 0.44, "torso": [13, 0, 0, 0, 0.18], "legs": ((-24, 11), (26, 11)), "head": [-8, 0, 0],
-         "aim": (0.05, 0.98, 0.12), "blade": (0.02, 0.48, 0.88), "axis": OVERHEAD},
-        # anticipation: a breath held at the top while the blade charges
-        {"t": 0.6, "torso": [16, 0, 0, 0, 0.2], "legs": ((-24, 11), (26, 11)), "head": [-10, 0, 0],
-         "aim": (0.05, 0.98, 0.18), "blade": (0.02, 0.32, 0.95), "axis": OVERHEAD},
-        {"t": 0.665, "torso": [17, 0, 0, 0, 0.22], "legs": ((-24, 11), (26, 11)), "head": [-10, 0, 0],
-         "aim": (0.05, 0.98, 0.2), "blade": (0.02, 0.27, 0.96), "axis": OVERHEAD},
-        # the cut: arms whip over, torso folds, front leg drives the lunge
-        {"t": 0.705, "torso": [5, 0, 0, 0, 0.1], "legs": ((-30, 11), (32, 11)), "head": [-4, 0, 0],
-         "aim": (0.04, 0.98, -0.18), "blade": (0.0, 0.92, -0.38), "axis": OVERHEAD},
-        {"t": 0.735, "torso": [-14, -2, 0, 0, -0.1], "legs": ((-38, 11), (40, 11)),
-         "aim": (0.03, 0.62, -0.78), "blade": (0.0, 0.66, -0.75), "axis": OVERHEAD},
-        {"t": 0.765, "torso": [-31, -3, 0, 0, -0.35], "legs": ((-44, 11), (46, 11)),
-         "aim": (0.02, 0.02, -1.0), "blade": (0.0, -0.1, -0.99), "axis": OVERHEAD},
-        {"t": 0.81, "torso": [-41, -3, 0, 0, -0.45], "legs": ((-46, 11), (48, 11)), "head": [4, 0, 0],
-         "aim": (0.02, -0.46, -0.89), "blade": (0.0, -0.72, -0.69), "axis": OVERHEAD},
-        # finishing pose: folded deep over the front knee, tip near the floor
-        {"t": 0.88, "torso": [-45, -4, 0, 0, -0.5], "legs": ((-47, 11), (49, 11)), "head": [6, 0, 0],
-         "aim": (0.02, -0.58, -0.81), "blade": (0.0, -0.84, -0.54), "axis": OVERHEAD},
-        {"t": 1.06, "torso": [-41, -4, 0, 0, -0.46], "legs": ((-46, 11), (48, 11)), "head": [5, 0, 0],
-         "aim": (0.02, -0.56, -0.83), "blade": (0.0, -0.8, -0.6), "axis": OVERHEAD},
-        # recovery: straighten up, the blade lifts back into the guard
-        {"t": 1.22, "torso": [-20, 6, 1, 0, -0.2], "legs": ((-28, 10), (30, 10)),
+        # sink: weight drops, blade swept low to the right side, loading
+        {"t": 0.1, "torso": [-20, -22, 4, 0.1, 0.15], "legs": ((-30, 13), (30, 13)), "head": [2, 0, 0],
+         "aim": (0.62, -0.55, 0.2), "blade": (0.45, -0.35, 0.82), "axis": OVERHEAD},
+        # spring up: the blade swings up past the face as the body rises
+        {"t": 0.24, "torso": [4, -6, 0, 0, 0.1], "legs": ((-12, 8), (22, 8)), "lift": 0.55, "head": [6, 0, 0],
+         "aim": (0.2, 0.78, -0.58), "blade": (0.05, 0.99, 0.05), "axis": OVERHEAD},
+        # apex: high in the air, chest open, blade far back over the head
+        {"t": 0.38, "torso": [20, 0, 0, 0, 0.3], "legs": ((-28, 12), (34, 12)), "lift": 1.25, "head": [-12, 0, 0],
+         "aim": (0.05, 0.98, 0.16), "blade": (0.02, 0.36, 0.93), "axis": OVERHEAD},
+        # hang: the charge peaks (anticipation hold)
+        {"t": 0.56, "torso": [23, 0, 0, 0, 0.32], "legs": ((-30, 12), (36, 12)), "lift": 1.15, "head": [-13, 0, 0],
+         "aim": (0.05, 0.98, 0.22), "blade": (0.02, 0.22, 0.97), "axis": OVERHEAD},
+        # drive down: the whole body whips over as it falls
+        {"t": 0.64, "torso": [8, 0, 0, 0, 0.15], "legs": ((-34, 12), (40, 12)), "lift": 0.75, "head": [-6, 0, 0],
+         "aim": (0.04, 0.98, -0.15), "blade": (0.0, 0.94, -0.34), "axis": OVERHEAD},
+        {"t": 0.7, "torso": [-16, -2, 0, 0, -0.1], "legs": ((-40, 12), (44, 12)), "lift": 0.3,
+         "aim": (0.03, 0.6, -0.8), "blade": (0.0, 0.62, -0.78), "axis": OVERHEAD},
+        # landing cut: deep lunge, blade level at the release
+        {"t": 0.75, "torso": [-36, -3, 0, 0, -0.42], "legs": ((-48, 12), (50, 12)),
+         "aim": (0.02, 0.0, -1.0), "blade": (0.0, -0.16, -0.99), "axis": OVERHEAD},
+        # follow-through: the blade bites into the floor
+        {"t": 0.8, "torso": [-46, -3, 0, 0, -0.52], "legs": ((-50, 12), (52, 12)), "head": [6, 0, 0],
+         "aim": (0.02, -0.5, -0.87), "blade": (0.0, -0.8, -0.6), "axis": OVERHEAD},
+        # finishing pose
+        {"t": 0.88, "torso": [-49, -4, 0, 0, -0.55], "legs": ((-50, 12), (52, 12)), "head": [8, 0, 0],
+         "aim": (0.02, -0.6, -0.8), "blade": (0.0, -0.88, -0.48), "axis": OVERHEAD},
+        {"t": 1.08, "torso": [-44, -4, 0, 0, -0.5], "legs": ((-48, 12), (50, 12)), "head": [6, 0, 0],
+         "aim": (0.02, -0.57, -0.82), "blade": (0.0, -0.84, -0.55), "axis": OVERHEAD},
+        # recovery
+        {"t": 1.26, "torso": [-20, 6, 1, 0, -0.2], "legs": ((-28, 10), (30, 10)),
          "aim": (0.1, -0.2, -0.97), "blade": (0.0, 0.12, -0.99), "edge": (0.0, -0.99, -0.12)},
-        {"t": 1.42, "ready": True},
+        {"t": 1.5, "ready": True},
     ],
 }
 
