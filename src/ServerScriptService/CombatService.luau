@@ -193,7 +193,13 @@ end
 
 -- Cooldowns are published as server time so the owner's client shows (and
 -- predicts) the real one, including whiff refunds.
-local COOLDOWN_ATTRIBUTE = { critReadyAt = "CritReady", sweepReadyAt = "SweepReady", grabReadyAt = "GrabReady" }
+local COOLDOWN_ATTRIBUTE = {
+	critReadyAt = "CritReady",
+	sweepReadyAt = "SweepReady",
+	grabReadyAt = "GrabReady",
+	rushReadyAt = "RushReady",
+	crescentReadyAt = "CrescentReady",
+}
 local function setCooldown(c, field, readyAt)
 	c[field] = readyAt
 	local name = COOLDOWN_ATTRIBUTE[field]
@@ -328,7 +334,11 @@ end
 
 -- `clientDriven`: the attacker is a player whose client already moved
 -- itself (lunges, launcher self-launch) and played the hit effects.
-local function resolveHit(attacker, defender, attack, kind, attackId, clientDriven)
+-- `source` (optional) is where the hit came from when that isn't the
+-- attacker's body (Moonfall Crescent): { contact, direction }. Facing,
+-- knockback and the contact point use it, and a parry deflects it without
+-- recoiling an attacker who is far away.
+local function resolveHit(attacker, defender, attack, kind, attackId, clientDriven, source)
 	local t = now()
 	if not isAlive(defender) then
 		return
@@ -350,6 +360,11 @@ local function resolveHit(attacker, defender, attack, kind, attackId, clientDriv
 
 	local contact = defender.root.Position:Lerp(attacker.root.Position, 0.4) + Vector3.new(0, 0.6, 0)
 	local facing = isFacing(defender, attacker)
+	if source then
+		contact = source.contact
+		local look = flat(defender.root.CFrame.LookVector)
+		facing = look.Magnitude < 0.05 or look.Unit:Dot(-source.direction) >= Config.FacingDot
+	end
 	local stunParry = defender.state == "Stunned" and defender.stunParry and not defender.knockedDown
 	local stunnable = defender.state ~= "GuardBroken" and defender.state ~= "Parried"
 		and (defender.state ~= "Stunned" or stunParry)
@@ -368,6 +383,17 @@ local function resolveHit(attacker, defender, attack, kind, attackId, clientDriv
 		end
 		grantParryM1(defender)
 		setPosture(defender, defender.posture - Config.ParryPostureRecover)
+
+		if source then
+			-- a deflected projectile: the caster is far away and keeps going
+			playAnim(defender, "BlockImpact")
+			effect("Parry", contact, attacker, defender, kind, attackId, {
+				parryM1Token = defender.parryM1Token,
+				parryM1Consumed = defender.parryM1Consumed,
+				stunParry = stunParry == true,
+			})
+			return
+		end
 
 		attacker.attack = nil
 		attacker.combo = 0
@@ -406,7 +432,7 @@ local function resolveHit(attacker, defender, attack, kind, attackId, clientDriv
 		-- the string instead of replaying the first (right-hook) strike.
 		effect("Block", contact, attacker, defender, kind, attackId)
 		playAnim(defender, "BlockImpact")
-		push(defender, flat(attacker.root.CFrame.LookVector) * 2.5, 0.08)
+		push(defender, (source and source.direction or flat(attacker.root.CFrame.LookVector)) * 2.5, 0.08)
 		damage(defender, attack.damage * Config.ChipDamage)
 		return
 	end
@@ -433,7 +459,7 @@ local function resolveHit(attacker, defender, attack, kind, attackId, clientDriv
 		stopMotion(defender)
 	end
 
-	local direction = flat(attacker.root.CFrame.LookVector)
+	local direction = source and source.direction or flat(attacker.root.CFrame.LookVector)
 
 	if attack.slam then
 		-- Spiked into the ground, but free to act immediately.
@@ -555,6 +581,14 @@ local function startAttack(c, kind, predicted, attackId, inheritedSpeed)
 	if attack.lunge and not attack.lungeAtHit then
 		push(c, flat(c.root.CFrame.LookVector) * attack.lunge[1], attack.lunge[2])
 	end
+	if attack.rush and anim.markers.Dash then
+		task.delay(anim.markers.Dash / speed, function()
+			if c.token == token and isAlive(c) then
+				local look = flat(c.root.CFrame.LookVector).Unit
+				motion(c, "rush", look * CombatService.rushDistance(c), Config.KatanaSkills.KatanaRush.dashDuration / speed)
+			end
+		end)
+	end
 
 	task.delay(hitDelay, function()
 		if c.token ~= token then
@@ -626,7 +660,7 @@ function CombatService.claimHit(c, attackId, targetModel, startCF)
 	if now() < a.hitAt - Config.HitClaim.EarlyTolerance then
 		return false
 	end
-	if not Hitbox.plausible(c.root, target.root, attack, Config.HitClaim.RangeSlack) then
+	if not Hitbox.plausible(c.root, target.root, attack, Config.HitClaim.RangeSlack + (attack.claimSlack or 0)) then
 		return false
 	end
 	a.resolved = true
@@ -977,6 +1011,176 @@ function CombatService.setSprint(c, on)
 end
 
 ------------------------------------------------------------------------
+-- Katana skills (katana drawn): Z Lumen Rush, X Moonfall Crescent.
+
+local function katanaReady(c)
+	return c.katanaDrawn == true and c.model:GetAttribute("Weapon") == "Katana"
+end
+
+-- How far Lumen Rush dashes: up to the opponent in front (stopping at
+-- blade reach), or the full length with nobody there. Players' clients
+-- decide this themselves; this is for dummies.
+function CombatService.rushDistance(c)
+	local S = Config.KatanaSkills.KatanaRush
+	local look = flat(c.root.CFrame.LookVector)
+	look = look.Magnitude > 0.01 and look.Unit or Vector3.new(0, 0, -1)
+	local cosLimit = math.cos(math.rad(S.targetAngle))
+	local best
+	for _, other in pairs(combatants) do
+		if other ~= c and isAlive(other) then
+			local offset = flat(other.root.Position - c.root.Position)
+			local distance = offset.Magnitude
+			if distance > 0.1 and distance <= S.targetRange and look:Dot(offset.Unit) >= cosLimit then
+				if not best or distance < best then
+					best = distance
+				end
+			end
+		end
+	end
+	if best then
+		return math.clamp(best - S.stopShort, S.minDistance, S.maxDistance)
+	end
+	return S.maxDistance
+end
+
+function CombatService.katanaRush(c, predicted, attackId)
+	local t = now()
+	if not katanaReady(c) or not canStartAction(c, t) or t < c.rushReadyAt then
+		return false
+	end
+	setCooldown(c, "rushReadyAt", t + Config.Attacks.KatanaRush.cooldown)
+	c.sprinting = false
+	startAttack(c, "KatanaRush", predicted, attackId)
+	return true, Config.Attacks.KatanaRush.anim
+end
+
+-- The travelling crescent, flown here: a box swept along its path each
+-- frame; the first fighter inside it is hit, walls stop it.
+local function flyCrescent(c, attack, a)
+	local S = Config.KatanaSkills.KatanaCrescent
+	local direction = flat(c.root.CFrame.LookVector)
+	direction = direction.Magnitude > 0.01 and direction.Unit or Vector3.new(0, 0, -1)
+	local origin = c.root.Position + direction * 3 -- the chord, at the attacker's centre height
+	-- the bulge leads the chord by a few studs: that's the edge that cuts
+	local LEAD = 4.5
+	local wallParams = RaycastParams.new()
+	wallParams.FilterType = Enum.RaycastFilterType.Exclude
+	local ignore = {}
+	for model in pairs(combatants) do
+		table.insert(ignore, model)
+	end
+	local fx = workspace:FindFirstChild("CombatFX")
+	if fx then
+		table.insert(ignore, fx)
+	end
+	wallParams.FilterDescendantsInstances = ignore
+	local hitBox = OverlapParams.new()
+	hitBox.FilterType = Enum.RaycastFilterType.Include
+	local passed = {} -- dashed through it: it carries on past them
+
+	local travelled = 0
+	local last = now()
+	local connection
+	local function finish()
+		connection:Disconnect()
+		if not a.contact then
+			refundWhiff(c, "crescentReadyAt", a.started, attack.cooldown)
+		end
+	end
+	connection = RunService.Heartbeat:Connect(function()
+		local t = now()
+		local step = math.min(S.speed * (t - last), 12)
+		last = t
+		local from = travelled
+		travelled = math.min(S.range, travelled + step)
+		-- walls (raised a little so floor bumps don't stop it)
+		local probeFrom = origin + direction * from + Vector3.new(0, 1.5, 0)
+		local wall = workspace:Raycast(probeFrom, direction * (travelled - from + LEAD), wallParams)
+		if wall then
+			finish()
+			return
+		end
+		local candidates = {}
+		for model, other in pairs(combatants) do
+			if other ~= c and isAlive(other) and not passed[other] then
+				table.insert(candidates, model)
+			end
+		end
+		if #candidates > 0 then
+			hitBox.FilterDescendantsInstances = candidates
+			local depth = travelled - from + LEAD
+			local centre = origin + direction * (from + depth / 2) + Vector3.new(0, attack.height / 2 - 3, 0)
+			local parts = workspace:GetPartBoundsInBox(CFrame.lookAlong(centre, direction), Vector3.new(attack.width, attack.height, depth), hitBox)
+			local victim, bestAlong
+			for _, part in ipairs(parts) do
+				local other = combatants[part.Parent]
+				if other and other ~= c and isAlive(other) then
+					local along = (other.root.Position - origin):Dot(direction)
+					if not bestAlong or along < bestAlong then
+						victim, bestAlong = other, along
+					end
+				end
+			end
+			if victim then
+				local tt = now()
+				if tt < victim.iframesUntil then
+					effect("Dodge", victim.root.Position, c, victim, "KatanaCrescent")
+					passed[victim] = true
+				else
+					a.contact = true
+					local at = math.max(0, bestAlong - LEAD * 0.5)
+					resolveHit(c, victim, attack, "KatanaCrescent", nil, false, {
+						contact = origin + direction * at,
+						direction = direction,
+					})
+					finish()
+					return
+				end
+			end
+		end
+		if travelled >= S.range then
+			finish()
+		end
+	end)
+end
+
+function CombatService.katanaCrescent(c, predicted, attackId)
+	local t = now()
+	local attack = Config.Attacks.KatanaCrescent
+	if not katanaReady(c) or not canStartAction(c, t) or t < c.crescentReadyAt then
+		return false
+	end
+	local anim = AnimationData[attack.anim]
+	setCooldown(c, "crescentReadyAt", t + attack.cooldown)
+	c.sprinting = false
+
+	local a = { kind = "KatanaCrescent", def = attack, started = t, hitAt = t + anim.markers.Hit, id = attackId, speed = 1 }
+	c.attack = a
+	local token = setState(c, "Attacking")
+	c.nextActionAt = t + anim.recover
+	playAnim(c, attack.anim, predicted)
+	attackStarted:Fire(c, "KatanaCrescent", a.hitAt)
+
+	-- released on the clip's Hit marker; once it's flying, it flies even if
+	-- the caster is interrupted afterwards
+	task.delay(anim.markers.Hit, function()
+		if c.token ~= token or not isAlive(c) then
+			-- cut short before the release: nothing was thrown
+			refundWhiff(c, "crescentReadyAt", a.started, attack.cooldown)
+			return
+		end
+		flyCrescent(c, attack, a)
+	end)
+	task.delay(anim.recover, function()
+		if c.token == token then
+			c.attack = nil
+			setState(c, "Idle")
+		end
+	end)
+	return true, attack.anim
+end
+
+------------------------------------------------------------------------
 -- Head Drive (Y): grab, head slam, drag, two head slams. See HeadDrive for the
 -- timeline. A player attacker's own client drives their body (they steer
 -- the drag); the server pins the victim (anchored) and places it relative
@@ -1286,6 +1490,9 @@ function CombatService.register(model, player)
 
 		grabReadyAt = 0,
 		grab = nil, -- the Head Drive this fighter is in, either side of it
+
+		rushReadyAt = 0,
+		crescentReadyAt = 0,
 
 		rollReadyAt = 0,
 		rollStarted = 0,

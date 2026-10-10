@@ -53,3 +53,22 @@ LUAU=luau python3 tools/preview.py M1_1   # render a move's keyframes to preview
 ```
 
 `preview.py` reproduces the R6 joint math, so the pictures match what plays in game.
+
+## Katana skills (Z: Lumen Rush, X: Moonfall Crescent)
+
+Katana drawn (E) only. Install with `install/InstallKatanaSkills.lua` (command bar, one undo step);
+it only writes the scripts this feature touches.
+
+- **Lumen Rush (Z)**: coil, glint, dash to the opponent you're aiming at, diagonal cut with a layered slash explosion.
+- **Moonfall Crescent (X)**: overhead cut that launches a travelling 17-stud crescent (server-flown hitbox).
+
+Tuning lives in `Config.Attacks.KatanaRush/KatanaCrescent` and `Config.KatanaSkills`.
+
+Custom sprites are in `assets/katana/`. Upload them (Studio > Asset Manager > Bulk Import, or
+`tools/katana/upload.py`) and paste the image ids into `Config.KatanaTextures`; until then the
+effects fall back to the existing textures.
+
+Python tooling (`tools/katana/`): `moves.py` (pose solver -> KatanaSkillPoses), `fxscore.py`
+(VFX score -> KatanaFXData), `textures.py` (sprites), `preview.py` (renders the moves + VFX,
+`--slow 3` for slow motion), `verify.py` (checks the in-game bake matches the previews),
+`build_installer.py`.

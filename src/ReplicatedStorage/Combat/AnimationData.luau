@@ -3011,6 +3011,13 @@ require(script.Parent.KatanaAnimations)(Data, {
 	legSpring = LEG_SPRING,
 })
 
+-- Katana skills (Lumen Rush, Moonfall Crescent); see KatanaSkillAnimations.
+require(script.Parent.KatanaSkillAnimations)(Data, {
+	detail = detail,
+	detailed = detailed,
+	fps = BAKE_FPS,
+})
+
 -- Walking/running: Roblox's default R6 walk (animation 180426354), baked 1:1.
 -- The client plays it at speed / speedRef like the default Animate script
 -- does (14.5 is the speed it was authored for). It is swapped in here, after

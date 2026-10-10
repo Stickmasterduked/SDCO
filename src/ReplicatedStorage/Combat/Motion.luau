@@ -182,6 +182,46 @@ function Motion.dash(root, velocity, duration, orbit)
 end
 
 ------------------------------------------------------------------------
+-- Rush (Lumen Rush's dash): covers exactly `displacement` (horizontal) in
+-- `duration`, on a curve with a hard but visible acceleration out of the
+-- launch, a peak about a quarter of the way in, and a long braking glide
+-- that settles the body where the cut lands, without sliding past it.
+-- v(u) ~ u^A (1 - u)^B, the same curve tools/katana/motionprofile.py uses.
+
+local RUSH_A, RUSH_B, RUSH_STEPS = 0.5, 1.4, 256
+local rushTotal = 0
+for i = 0, RUSH_STEPS - 1 do
+	local u0, u1 = i / RUSH_STEPS, (i + 1) / RUSH_STEPS
+	rushTotal += ((u0 ^ RUSH_A) * (1 - u0) ^ RUSH_B + (u1 ^ RUSH_A) * (1 - u1) ^ RUSH_B) / 2 / RUSH_STEPS
+end
+
+function Motion.rush(root, displacement, duration)
+	Motion.stop(root)
+	local flatMove = flat(displacement)
+	local distance = flatMove.Magnitude
+	if distance < 0.05 or duration <= 0 then
+		return
+	end
+	local direction = flatMove.Unit
+	local push = makePush(root, Vector2.zero)
+	local start = os.clock()
+	local connection
+	connection = RunService.Heartbeat:Connect(function()
+		local u = (os.clock() - start) / duration
+		if u >= 1 or not push.Parent then
+			connection:Disconnect()
+			if push.Parent then
+				push:Destroy()
+			end
+			return
+		end
+		u = math.max(u, 1e-3)
+		local speed = distance / duration * (u ^ RUSH_A) * (1 - u) ^ RUSH_B / rushTotal
+		push.PlaneVelocity = Vector2.new(direction.X, direction.Z) * speed
+	end)
+end
+
+------------------------------------------------------------------------
 -- Hover: holds a character in the air (slowly sinking) during juggles.
 -- `delay` lets a launch carry them up first; each new call refreshes it.
 
@@ -238,6 +278,8 @@ function Motion.apply(root, kind, velocity, duration, delay, orbit)
 		Motion.knockback(root, velocity, duration)
 	elseif kind == "dash" then
 		Motion.dash(root, velocity, duration, orbit)
+	elseif kind == "rush" then
+		Motion.rush(root, velocity, duration)
 	elseif kind == "stop" then
 		Motion.stop(root)
 	elseif kind == "hover" then

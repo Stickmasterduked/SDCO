@@ -27,6 +27,7 @@ local Motion = require(CombatShared.Motion)
 local CameraFX = require(CombatShared.CameraFX)
 local Hitbox = require(CombatShared.Hitbox)
 local HeadDrive = require(CombatShared.HeadDrive)
+local KatanaFX = require(CombatShared.KatanaFX)
 local Remotes = CombatShared:WaitForChild("Remotes")
 
 local player = Players.LocalPlayer
@@ -143,7 +144,7 @@ local function getTrack(model, name)
 			end
 		end)
 	end
-	if data.katana and data.markers and data.markers.Swing then
+	if data.katana and not data.skill and data.markers and data.markers.Swing then
 		local heavy = name == "Katana_Critical" or name == "Katana_Finisher"
 		track:GetMarkerReachedSignal("Swing"):Connect(function()
 			local root = model:FindFirstChild("HumanoidRootPart")
@@ -165,7 +166,7 @@ local function getTrack(model, name)
 	end
 	-- every strike snaps through its hit frame (hit or whiff): the body
 	-- dips into it and the torso/head whip, then wobble back
-	if data.markers and data.markers.Hit and data.group == "action" then
+	if data.markers and data.markers.Hit and data.group == "action" and not data.skill then
 		local heavy = name:find("Finisher") or name:find("Critical") or name:find("Downslam")
 		track:GetMarkerReachedSignal("Hit"):Connect(function()
 			local m = heavy and 1.7 or 1
@@ -256,6 +257,9 @@ local function playAnim(model, name, speed)
 			return
 		end
 		track:Play(fade, 1, speed or (name == "Knockback" and 2 or 1))
+		if data.skill then
+			KatanaFX.begin(model, track, name)
+		end
 	end
 end
 
@@ -620,19 +624,23 @@ local function react(kind, attacker, defender)
 end
 
 -- Both bodies freeze for a few frames when a hit connects.
-local function hitStop(kind, attacker, defender)
+local function hitStop(kind, attacker, defender, info)
 	local duration = Config.HitStop[kind]
 	if not duration then
 		return
 	end
-	-- a katana cut bites in a little longer: the blade has weight
-	if isModel(attacker) and attacker:GetAttribute("Weapon") == "Katana" and isDrawn(attacker) then
+	local skill = Config.KatanaSkills[info]
+	local thrown = skill ~= nil and Config.Attacks[info] ~= nil and Config.Attacks[info].projectile == true
+	if skill and skill.hitStop and (kind == "Hit" or kind == "HeavyHit") then
+		duration = skill.hitStop
+	elseif isModel(attacker) and attacker:GetAttribute("Weapon") == "Katana" and isDrawn(attacker) then
+		-- a katana cut bites in a little longer: the blade has weight
 		duration *= Config.KatanaHitStopMult or 1
 	end
 	if isModel(defender) then
 		PoseAnimator.hitStop(defender, duration, kind == "Block" and 0.1 or 0.28)
 	end
-	if isModel(attacker) then
+	if isModel(attacker) and not thrown then
 		PoseAnimator.hitStop(attacker, duration, kind == "Parry" and 0.22 or 0)
 	end
 	if kind == "Parry" and isModel(defender) then
@@ -714,7 +722,17 @@ end
 -- Full impact feedback for one effect event.
 local function playEffect(kind, position, attacker, defender, info)
 	react(kind, attacker, defender)
-	hitStop(kind, attacker, defender)
+	hitStop(kind, attacker, defender, info)
+	if KatanaFX.handles(kind, info) then
+		-- the katana skills' own impact (with its own camera cues); a block,
+		-- parry or guard break still shows the usual sparks and camera too
+		local amount = KatanaFX.impact(kind, position, attacker, defender, info)
+		if kind ~= "Hit" and kind ~= "HeavyHit" then
+			amount = math.max(amount, Effects.play(kind, position, attacker, defender, info) or 0)
+			cameraReact(kind, amount, position, attacker, defender, info)
+		end
+		return
+	end
 	local amount = Effects.play(kind, position, attacker, defender, info)
 	cameraReact(kind, amount, position, attacker, defender, info)
 end
@@ -863,11 +881,20 @@ predicted = {
 	slamLocked = false, -- used a downslam this airtime
 	downslamReadyAt = 0,
 	sweepReadyAt = 0,
+	rushReadyAt = 0,
+	crescentReadyAt = 0,
+	lockFacingUntil = 0, -- Lumen Rush's dash holds the body's facing
 }
 
 -- The server publishes cooldowns (as server time) on our character; it has
 -- the final say, e.g. a whiffed move's shorter cooldown.
-local COOLDOWN_ATTRIBUTE = { CritReady = "critReadyAt", SweepReady = "sweepReadyAt", GrabReady = "headDriveReadyAt" }
+local COOLDOWN_ATTRIBUTE = {
+	CritReady = "critReadyAt",
+	SweepReady = "sweepReadyAt",
+	GrabReady = "headDriveReadyAt",
+	RushReady = "rushReadyAt",
+	CrescentReady = "crescentReadyAt",
+}
 local function cooldownFromServer(character, attribute)
 	local readyAt = character:GetAttribute(attribute)
 	if type(readyAt) ~= "number" then
@@ -892,6 +919,7 @@ local justJumpedAt = nil -- when our last ground jump left the floor
 local lastGroundM1 = nil -- { at, anim }: a ground strike Space can still turn into an uptilt
 local bufferedCrit = nil
 local bufferedSweep = nil
+local bufferedSkill = nil -- { kind, at }: a katana skill pressed mid-strike
 local launcherQueuedAt = nil -- Space pressed mid-chain: the next strike is an uptilt
 
 local sprinting = false
@@ -1625,6 +1653,15 @@ Remotes.Ack.OnClientEvent:Connect(function(id, accepted, anim, details)
 				predicted.critReadyAt = cooldownFromServer(character, "CritReady")
 			elseif entry.anim == "LowSweep" then
 				predicted.sweepReadyAt = cooldownFromServer(character, "SweepReady")
+			elseif entry.anim == "Katana_Rush" then
+				predicted.rushReadyAt = cooldownFromServer(character, "RushReady")
+				predicted.lockFacingUntil = 0
+				local root = character:FindFirstChild("HumanoidRootPart")
+				if root then
+					Motion.stop(root)
+				end
+			elseif entry.anim == "Katana_Crescent" then
+				predicted.crescentReadyAt = cooldownFromServer(character, "CrescentReady")
 			elseif entry.anim == "Downslam" then
 				predicted.downslamReadyAt = 0
 			end
@@ -1832,6 +1869,112 @@ local function doLowSweep()
 	armHit("LowSweep", id)
 end
 
+-- Katana skills (katana drawn): Z Lumen Rush, X Moonfall Crescent.
+local SKILL_ACTION = { KatanaRush = "KatanaRush", KatanaCrescent = "KatanaCrescent" }
+local SKILL_READY = { KatanaRush = "rushReadyAt", KatanaCrescent = "crescentReadyAt" }
+
+local function katanaOut(character)
+	return character:GetAttribute("Weapon") == "Katana" and katanaDrawn
+end
+
+-- The opponent Lumen Rush dashes to: the nearest one within range and close
+-- to where you're aiming.
+local function rushTarget(root)
+	local S = Config.KatanaSkills.KatanaRush
+	local look = camera.CFrame.LookVector * FLAT
+	if look.Magnitude < 0.01 then
+		look = root.CFrame.LookVector * FLAT
+	end
+	look = look.Unit
+	local cosLimit = math.cos(math.rad(S.targetAngle))
+	local best, bestScore
+	for _, model in ipairs(CollectionService:GetTagged("Combatant")) do
+		if model ~= player.Character then
+			local other = model:FindFirstChild("HumanoidRootPart")
+			local humanoid = model:FindFirstChildOfClass("Humanoid")
+			if other and humanoid and humanoid.Health > 0 then
+				local offset = (other.Position - root.Position) * FLAT
+				local distance = offset.Magnitude
+				if distance > 0.5 and distance <= S.targetRange then
+					local dot = look:Dot(offset.Unit)
+					if dot >= cosLimit then
+						local score = distance * (2 - dot)
+						if not bestScore or score < bestScore then
+							best, bestScore = other, score
+						end
+					end
+				end
+			end
+		end
+	end
+	return best
+end
+
+-- Lumen Rush moves on its clip's Dash marker: straight at the target,
+-- stopping at blade reach so the cut lands on the Hit marker.
+local function armRush(token)
+	local character = getCharacter()
+	local track = character and getTrack(character, Config.Attacks.KatanaRush.anim)
+	if not track then
+		return
+	end
+	local S = Config.KatanaSkills.KatanaRush
+	local connection
+	connection = track:GetMarkerReachedSignal("Dash"):Connect(function()
+		connection:Disconnect()
+		if token ~= attackToken then
+			return -- cancelled (stunned, refused) before it launched
+		end
+		local _, _, root = getCharacter()
+		if not root then
+			return
+		end
+		local direction = root.CFrame.LookVector * FLAT
+		direction = direction.Magnitude > 0.01 and direction.Unit or Vector3.new(0, 0, -1)
+		local distance = S.maxDistance
+		local target = rushTarget(root)
+		if target then
+			local offset = (target.Position - root.Position) * FLAT
+			direction = offset.Unit
+			distance = math.clamp(offset.Magnitude - S.stopShort, S.minDistance, S.maxDistance)
+		end
+		root.CFrame = CFrame.lookAt(root.Position, root.Position + direction)
+		predicted.lockFacingUntil = os.clock() + S.dashDuration + 0.1
+		Motion.rush(root, direction * distance, S.dashDuration)
+	end)
+	task.delay(2, function()
+		connection:Disconnect()
+	end)
+end
+
+local function doKatanaSkill(kind)
+	local character = getCharacter()
+	if not character or not katanaOut(character) then
+		return
+	end
+	local t = os.clock()
+	local field = SKILL_READY[kind]
+	if t < predicted[field] then
+		return -- on cooldown
+	end
+	if not canPredictAction(t) then
+		bufferedSkill = { kind = kind, at = t } -- fires the moment the current strike lets go
+		return
+	end
+	bufferedSkill = nil
+	predicted[field] = t + Config.Attacks[kind].cooldown
+	sprinting = false
+	lastGroundM1 = nil
+	local anim = predictAttack(kind)
+	playAnim(character, anim)
+	local id = send(SKILL_ACTION[kind], nil, anim)
+	if kind == "KatanaRush" then
+		-- the cut is found here at its Hit marker, like any strike
+		armHit(kind, id)
+		armRush(attackToken)
+	end
+end
+
 local function doFeint()
 	local character, _, root = getCharacter()
 	if not character then
@@ -1840,7 +1983,11 @@ local function doFeint()
 	local t = os.clock()
 	local state = serverState()
 
+	-- (the katana skills can't be feinted: the server refuses it, so don't
+	-- cancel them here either)
+	local skill = predicted.attackKind and Config.Attacks[predicted.attackKind]
 	local canFeintAttack = predicted.attacking
+		and not (skill and skill.katanaSkill)
 		and t < predicted.attackHitAt - Config.FeintLockout / predicted.attackSpeed
 		and t >= predicted.feintReadyAt
 	-- our own dash just started: don't wait for the server's Rolling state to
@@ -2351,6 +2498,10 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		skillHUD:Activate("H")
 	elseif input.KeyCode == Enum.KeyCode.Q then
 		doRoll()
+	elseif input.KeyCode.Name == Config.KatanaSkills.KatanaRush.key then
+		doKatanaSkill("KatanaRush")
+	elseif input.KeyCode.Name == Config.KatanaSkills.KatanaCrescent.key then
+		doKatanaSkill("KatanaCrescent")
 	elseif input.KeyCode == Enum.KeyCode.LeftAlt or input.KeyCode == Enum.KeyCode.RightAlt then
 		toggleShiftLock()
 	end
@@ -2388,6 +2539,8 @@ local function cancelPredictedAction()
 	predicted.busyUntil = 0
 	sprinting = false
 	bufferedM1 = nil
+	bufferedSkill = nil
+	predicted.lockFacingUntil = 0
 end
 
 -- A downslam interrupts our action without entering Stunned.
@@ -2456,6 +2609,8 @@ local function onCharacterAdded(character)
 	-- the next life. Read authoritative values if they already replicated.
 	bufferedSweep = nil
 	bufferedCrit = nil
+	bufferedSkill = nil
+	predicted.lockFacingUntil = 0
 	for attribute, field in pairs(COOLDOWN_ATTRIBUTE) do
 		predicted[field] = cooldownFromServer(character, attribute)
 	end
@@ -2563,6 +2718,11 @@ RunService.Heartbeat:Connect(function()
 		bufferedSweep = nil
 	elseif bufferedSweep and canPredictAction(t) then
 		doLowSweep()
+	end
+	if bufferedSkill and t - bufferedSkill.at > Config.InputBufferTime + 0.15 then
+		bufferedSkill = nil
+	elseif bufferedSkill and canPredictAction(t) then
+		doKatanaSkill(bufferedSkill.kind)
 	end
 	tryJump()
 
@@ -2675,7 +2835,8 @@ RunService:BindToRenderStep("CombatCamera", Enum.RenderPriority.Camera.Value + 1
 
 	local offset = Vector3.zero
 	local state = serverState()
-	local rotationLocked = ROTATION_LOCKED[state] == true
+	-- (Lumen Rush's dash keeps the facing it launched with)
+	local rotationLocked = ROTATION_LOCKED[state] == true or os.clock() < predicted.lockFacingUntil
 	local t = os.clock()
 	if manualCameraStick then
 		lastManualCamera = t

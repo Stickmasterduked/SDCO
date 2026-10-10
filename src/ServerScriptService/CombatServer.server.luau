@@ -126,6 +126,13 @@ local handlers = {
 	HeadDrive = function(c, _, sequence)
 		return CombatService.headDrive(c, true, sequence)
 	end,
+	-- katana skills (katana drawn): Z Lumen Rush, X Moonfall Crescent
+	KatanaRush = function(c, _, sequence)
+		return CombatService.katanaRush(c, true, sequence)
+	end,
+	KatanaCrescent = function(c, _, sequence)
+		return CombatService.katanaCrescent(c, true, sequence)
+	end,
 	Feint = function(c)
 		return CombatService.feint(c, true)
 	end,
