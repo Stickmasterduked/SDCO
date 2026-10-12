@@ -20,11 +20,11 @@ local scene
 -- Paste the IDs Roblox gives you after uploading the files in DomainAssets.
 local function id(n) return "rbxassetid://" .. n end
 local ASSETS = {
- Eye = id(0),        -- SukunaEye.png
+ FaceBase = id(0),   -- SukunaFaceBase.png
+ EyesLower = id(0),  -- SukunaEyesLower.png
+ EyesUpper = id(0),  -- SukunaEyesUpper.png
  Mouth = id(0),      -- SukunaMouth.png
- Marks = {id(0), id(0), id(0)}, -- SukunaMark1.png, SukunaMark2.png, SukunaMark3.png
- Glow = id(0),       -- RedGlow.png
- Vignette = id(0),   -- SukunaVignette.png
+ Glow = id(0),       -- SukunaGlow.png
  Crack = id(0),      -- DomainCrack.png
  BlockBreak = id(0), -- BlockBreak.ogg
 }
@@ -49,10 +49,6 @@ end
 local function ease(value)
  value = math.clamp(value, 0, 1)
  return value * value * (3 - 2 * value)
-end
-local function backOut(x)
- x = math.clamp(x, 0, 1) - 1
- return 1 + 2.9 * x * x * x + 1.9 * x * x
 end
 
 local gui = new("ScreenGui", {Name="DomainCutscene", DisplayOrder=10000, IgnoreGuiInset=true,
@@ -90,148 +86,186 @@ for i = 1, 42 do
 end
 local edgeFade = NumberSequence.new({NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.25, 0),
  NumberSequenceKeypoint.new(0.75, 0), NumberSequenceKeypoint.new(1, 1)})
+-- Everything that shakes/punches on impact lives in one layer.
+local shakeLayer = new("Frame", {AnchorPoint=Vector2.new(0.5, 0.5), Position=UDim2.fromScale(0.5, 0.5), Size=UDim2.fromScale(1, 1),
+ BackgroundTransparency=1, ZIndex=3}, intro)
+local shakeScale = new("UIScale", {}, shakeLayer)
+local impactFrame = new("Frame", {AnchorPoint=Vector2.new(0.5, 0.5), Position=UDim2.fromScale(0.5, 0.5), Size=UDim2.fromScale(1.3, 1.3),
+ BorderSizePixel=0, BackgroundColor3=Color3.new(0, 0, 0), Visible=false, ZIndex=2}, shakeLayer)
 local bandGlow = new("Frame", {AnchorPoint=Vector2.new(0.5, 0.5), Position=UDim2.fromScale(0.5, 0.5), Rotation=3,
- BorderSizePixel=0, BackgroundColor3=Color3.fromRGB(220, 238, 255), ZIndex=3}, intro)
+ BorderSizePixel=0, BackgroundColor3=Color3.fromRGB(220, 238, 255), ZIndex=3}, shakeLayer)
 new("UIGradient", {Transparency=edgeFade}, bandGlow)
 local band = new("Frame", {AnchorPoint=Vector2.new(0.5, 0.5), Position=UDim2.fromScale(0.5, 0.5), Rotation=3,
- BorderSizePixel=0, BackgroundColor3=Color3.new(1, 1, 1), ZIndex=3}, intro)
+ BorderSizePixel=0, BackgroundColor3=Color3.new(1, 1, 1), ZIndex=3}, shakeLayer)
 new("UIGradient", {Transparency=edgeFade}, band)
+
+-- Letters slam in word by word; every landing is a hit that shakes the card.
 local WORD = "DOMAIN EXPANSION"
-local letters = {}
+local WORD_START, STEP, SLAM = {0.1, 0.52}, 0.04, 0.06
+local letters, hits = {}, {}
+local word, kw = 1, 0
 for i = 1, #WORD do
  local ch = WORD:sub(i, i)
- if ch ~= " " then
+ if ch == " " then
+  word, kw = 2, 0
+ else
   local u = (i - 1) / (#WORD - 1)
-  local l = new("TextLabel", {Text=ch, Font=Enum.Font.GothamBlack, TextScaled=true, AnchorPoint=Vector2.new(0.5, 0.5),
-   Size=UDim2.fromScale(0.06, 0.12), BackgroundTransparency=1, TextColor3=Color3.fromRGB(14, 14, 20),
-   TextTransparency=1, ZIndex=4}, intro)
-  table.insert(letters, {label=l, k=#letters, x=0.07 + u * 0.86, y=0.455 + u * 0.075 + (i % 2 == 0 and 0.018 or -0.018),
-   stroke=new("UIStroke", {Color=Color3.new(1, 1, 1), Thickness=2.5}, l), scale=new("UIScale", {}, l)})
+  local function label(color, z)
+   return new("TextLabel", {Text=ch, Font=Enum.Font.GothamBlack, TextScaled=true, AnchorPoint=Vector2.new(0.5, 0.5),
+    Size=UDim2.fromScale(0.065, 0.13), BackgroundTransparency=1, TextColor3=color, TextTransparency=1, ZIndex=z}, shakeLayer)
+  end
+  local main = label(Color3.fromRGB(12, 12, 18), 5)
+  local start = WORD_START[word] + kw * STEP
+  table.insert(letters, {label=main, start=start, k=#letters, x=0.07 + u * 0.86,
+   y=0.455 + u * 0.075 + (i % 2 == 0 and 0.018 or -0.018), spin=(i % 2 == 0 and -18 or 18),
+   stroke=new("UIStroke", {Color=Color3.new(1, 1, 1), Thickness=3}, main), scale=new("UIScale", {}, main),
+   red=label(Color3.fromRGB(255, 30, 60), 4), cyan=label(Color3.fromRGB(30, 230, 255), 4)})
+  table.insert(hits, {time=start + SLAM, amp=0.008})
+  kw += 1
  end
 end
-local crack = new("ImageLabel", {Size=UDim2.fromScale(1, 1), BackgroundTransparency=1, Image=ASSETS.Crack,
- ImageTransparency=1, ScaleType=Enum.ScaleType.Stretch, ZIndex=5}, intro)
+-- Word landings and the final crack hit far harder than single letters.
+local WORD_HITS = {WORD_START[1] + 5 * STEP + SLAM, WORD_START[2] + 8 * STEP + SLAM}
+local CRACK_AT = INTRO_OPEN - 0.18
+table.insert(hits, {time=WORD_HITS[1], amp=0.035, sound=1.05, impact=true})
+table.insert(hits, {time=WORD_HITS[2], amp=0.05, sound=0.95, impact=true})
+table.insert(hits, {time=CRACK_AT, amp=0.07, sound=0.78, impact=true})
+
+local crack = new("ImageLabel", {AnchorPoint=Vector2.new(0.5, 0.5), Position=UDim2.fromScale(0.5, 0.5), Size=UDim2.fromScale(1, 1),
+ BackgroundTransparency=1, Image=ASSETS.Crack, ImageTransparency=1, ScaleType=Enum.ScaleType.Stretch, ZIndex=6}, shakeLayer)
 local crackScale = new("UIScale", {}, crack)
-local breakSound = new("Sound", {Name="DomainBlockBreak", SoundId=ASSETS.BlockBreak, Volume=1.4}, game:GetService("SoundService"))
-local function playBreak(speed, volume)
- breakSound.PlaybackSpeed, breakSound.Volume = speed, volume
- game:GetService("SoundService"):PlayLocalSound(breakSound)
-end
+local breakSound = new("Sound", {Name="DomainBlockBreak", SoundId=ASSETS.BlockBreak, Volume=1.6}, game:GetService("SoundService"))
 local introFlash = new("Frame", {Size=UDim2.fromScale(1, 1), BorderSizePixel=0, BackgroundColor3=Color3.new(1, 1, 1),
- BackgroundTransparency=1, ZIndex=6}, intro)
+ BackgroundTransparency=1, ZIndex=10}, intro)
 
 local function updateIntro(t, state)
  if t >= INTRO_END then intro.Visible = false; return end
- -- Block-break hits: once as the title slams in, once as the card cracks open.
- if not state.hitTitle and t >= 0.18 then state.hitTitle = true; if t < 0.6 then playBreak(1, 1.4) end end
- if not state.hitCrack and t >= INTRO_OPEN - 0.18 then state.hitCrack = true; if t < INTRO_OPEN + 0.2 then playBreak(0.82, 1.8) end end
- local cracked = ease((t - (INTRO_OPEN - 0.18)) / 0.08)
- crack.ImageTransparency = 1 - cracked * (1 - ease((t - INTRO_OPEN) / 0.3))
- crackScale.Scale = 1 + 0.15 * ease((t - INTRO_OPEN) / (INTRO_END - INTRO_OPEN))
  intro.Visible = true
- local fadeIn = ease(t / 0.15)
+ state.hitsPlayed = state.hitsPlayed or {}
+ local amp, impact, flashAmount = 0, false, 0
+ for i, h in ipairs(hits) do
+  local age = t - h.time
+  if age >= 0 then
+   amp += h.amp * math.exp(-age * 13)
+   if h.sound and not state.hitsPlayed[i] then
+    state.hitsPlayed[i] = true
+    if age < 0.25 then
+     breakSound.PlaybackSpeed = h.sound
+     game:GetService("SoundService"):PlayLocalSound(breakSound)
+    end
+   end
+   -- Two-frame inverted impact frame, then a white pop.
+   if h.impact then
+    if age < 0.07 then impact = true end
+    flashAmount = math.max(flashAmount, 0.7 * math.max(0, 1 - (age - 0.07) / 0.18) * (age >= 0.07 and 1 or 0))
+   end
+  end
+ end
  local open = ease((t - INTRO_OPEN) / (INTRO_END - INTRO_OPEN))
- skyTop.Position = UDim2.fromScale(0, -0.5 * open)
- skyBottom.Position = UDim2.fromScale(0, 0.5 + 0.5 * open)
- skyTop.BackgroundTransparency, skyBottom.BackgroundTransparency = 1 - fadeIn, 1 - fadeIn
  local burst = math.sin(math.pi * open)
- band.Size = UDim2.new(1.4, 0, 0.005 + 0.012 * ease(t / 0.25) + 0.06 * burst, 0)
- bandGlow.Size = UDim2.new(1.4, 0, 0.05 + 0.03 * math.sin(t * 9) + 0.5 * burst, 0)
- band.BackgroundTransparency = 1 - fadeIn * (1 - open * open)
- bandGlow.BackgroundTransparency = 1 - 0.45 * fadeIn * (1 - open)
+ -- Sky smashes on instantly (no fade), then splits apart.
+ local sx, sy = math.noise(t * 30, 5) * amp, math.noise(7, t * 30) * amp
+ skyTop.Position = UDim2.fromScale(sx, -0.5 * open + sy)
+ skyBottom.Position = UDim2.fromScale(sx, 0.5 + 0.5 * open + sy)
+ skyTop.BackgroundTransparency, skyBottom.BackgroundTransparency = 0, 0
+ shakeLayer.Position = UDim2.fromScale(0.5 + math.noise(t * 34, 1) * amp * 1.3, 0.5 + math.noise(3, t * 34) * amp * 1.3)
+ shakeLayer.Rotation = math.noise(t * 20, 9) * amp * 60
+ shakeScale.Scale = 1 + amp * 2.2 + 0.05 * ease((t - WORD_HITS[2]) / 0.9)
+ impactFrame.Visible = impact
+ band.Size = UDim2.new(1.4, 0, 0.008 + amp * 0.5 + 0.06 * burst, 0)
+ bandGlow.Size = UDim2.new(1.4, 0, 0.06 + amp * 3 + 0.03 * math.sin(t * 9) + 0.5 * burst, 0)
+ band.BackgroundTransparency = open * open
+ bandGlow.BackgroundTransparency = 1 - 0.5 * (1 - open)
  for _, s in ipairs(streaks) do
-  s.frame.Position = UDim2.fromScale(s.x, (s.offset + t * s.speed) % 1.5 - 0.25)
-  s.frame.BackgroundTransparency = 1 - s.alpha * fadeIn * (1 - open)
+  s.frame.Position = UDim2.fromScale(s.x, (s.offset + t * s.speed * (1 + amp * 25)) % 1.5 - 0.25)
+  s.frame.BackgroundTransparency = 1 - s.alpha * (1 - open)
  end
  for _, l in ipairs(letters) do
-  local lt = t - (0.18 + l.k * 0.075)
-  local pop = math.clamp(lt / 0.16, 0, 1)
-  local jitter = lt > 0.16 and (open > 0 and 0.004 or 0.0015) or 0
-  local nx, ny = math.noise(t * 22, l.k) * jitter, math.noise(l.k, t * 22) * jitter
-  l.label.Position = UDim2.fromScale(0.5 + (l.x - 0.5) * (1 + 0.4 * open) + nx, l.y + ny)
-  l.scale.Scale = (lt < 0 and 2.6 or 1 + 1.6 * (1 - backOut(pop))) * (1 + 0.6 * open)
-  l.label.Rotation = (1 - pop) * (l.k % 2 == 0 and -14 or 14)
-  local tr = lt < 0 and 1 or math.max(1 - ease(lt / 0.1), open)
+  local lt = t - l.start
+  local slam = math.clamp(lt / SLAM, 0, 1)
+  local landed = lt - SLAM
+  -- Accelerating fall into the card, hard stop, then a tiny recoil wobble.
+  local scale = lt < 0 and 0 or (slam < 1 and 4.2 - 3.2 * slam * slam or 1 + 0.12 * math.exp(-landed * 22) * math.cos(landed * 60))
+  scale *= 1 + 0.6 * open
+  local jitter = landed > 0 and 0.0015 + amp * 0.15 or 0
+  local px = 0.5 + (l.x - 0.5) * (1 + 0.45 * open) + math.noise(t * 25, l.k) * jitter
+  local py = l.y + math.noise(l.k, t * 25) * jitter
+  local tr = lt < 0 and 1 or math.max(0.6 * (1 - slam), open)
+  l.label.Position = UDim2.fromScale(px, py)
+  l.label.Rotation = (1 - slam) * l.spin
+  l.scale.Scale = scale
   l.label.TextTransparency = tr
-  l.stroke.Transparency = 0.15 + 0.85 * tr
+  l.label.TextColor3 = impact and Color3.new(1, 1, 1) or Color3.fromRGB(12, 12, 18)
+  l.stroke.Color = impact and Color3.new(0, 0, 0) or Color3.new(1, 1, 1)
+  l.stroke.Transparency = 0.1 + 0.9 * tr
+  -- Chromatic split that kicks out on every hit.
+  local split = amp * 0.35 + (1 - slam) * 0.01
+  for side, ghost in ipairs({l.red, l.cyan}) do
+   local dir = side == 1 and -1 or 1
+   ghost.Position = UDim2.fromScale(px + dir * split, py)
+   ghost.Rotation = l.label.Rotation
+   ghost.Size = UDim2.fromScale(0.065 * scale, 0.13 * scale)
+   ghost.TextTransparency = (lt < 0 or split < 0.002) and 1 or math.max(0.35, tr)
+  end
  end
- -- Impact flash per letter and a big flash as the card tears open.
- local lastPop = t - (0.18 + #letters * 0.075)
- introFlash.BackgroundTransparency = 1 - math.max(0.65 * burst, 0.5 * math.max(0, 1 - math.abs(lastPop) / 0.12))
+ local cracked = ease((t - CRACK_AT) / 0.05)
+ crack.ImageTransparency = 1 - cracked * (1 - ease((t - INTRO_OPEN) / 0.3))
+ crackScale.Scale = 1 + 0.2 * open
+ introFlash.BackgroundColor3 = Color3.new(1, 1, 1)
+ introFlash.BackgroundTransparency = 1 - math.max(flashAmount, 0.75 * burst, t < 0.06 and 0.9 or 0)
 end
 
--- Sukuna face: shown while the camera pushes into the caster's face ----------
-local function img(id, props, parent)
- props.Image, props.BackgroundTransparency, props.BorderSizePixel = id, 1, 0
- props.AnchorPoint = props.AnchorPoint or Vector2.new(0.5, 0.5)
- return new("ImageLabel", props, parent)
+-- Sukuna face: the reference frame, cut into layers so each feature animates in --
+local face = new("CanvasGroup", {Name="SukunaFace", Size=UDim2.fromScale(1, 1), BackgroundColor3=Color3.fromRGB(8, 14, 10),
+ BorderSizePixel=0, GroupTransparency=1, Visible=false, ZIndex=1}, gui)
+local faceRoot = new("Frame", {AnchorPoint=Vector2.new(0.5, 0.5), Position=UDim2.fromScale(0.5, 0.5), Size=UDim2.fromScale(1.04, 1.04),
+ BackgroundTransparency=1, ZIndex=1}, face)
+new("UIAspectRatioConstraint", {AspectRatio=16 / 9, AspectType=Enum.AspectType.ScaleWithParentSize,
+ DominantAxis=Enum.DominantAxis.Width}, faceRoot)
+local faceScale = new("UIScale", {}, faceRoot)
+local function layer(image, z, cx, cy)
+ return new("ImageLabel", {Image=image, AnchorPoint=Vector2.new(cx, cy), Position=UDim2.fromScale(cx, cy),
+  Size=UDim2.fromScale(1, 1), BackgroundTransparency=1, ScaleType=Enum.ScaleType.Stretch, ImageTransparency=1, ZIndex=z}, faceRoot)
 end
-local face = new("CanvasGroup", {Name="SukunaFace", Size=UDim2.fromScale(1, 1), BackgroundColor3=Color3.fromRGB(9, 15, 11),
- BackgroundTransparency=0.04, BorderSizePixel=0, GroupTransparency=1, Visible=false, ZIndex=1}, gui)
-local mask = new("Frame", {AnchorPoint=Vector2.new(0.5, 0.5), Position=UDim2.fromScale(0.5, 0.5), Size=UDim2.fromScale(1, 1),
- BackgroundTransparency=1, ZIndex=2}, face)
-new("UIAspectRatioConstraint", {AspectRatio=16 / 9}, mask)
-local maskScale = new("UIScale", {}, mask)
-local aura = img(ASSETS.Glow, {Position=UDim2.fromScale(0.5, 0.48), Size=UDim2.fromScale(0.75, 1.3), ZIndex=1}, mask)
-local vignette = img(ASSETS.Vignette, {AnchorPoint=Vector2.zero, Size=UDim2.fromScale(1, 1), ZIndex=10,
- ScaleType=Enum.ScaleType.Stretch}, face)
-local parts = {}
--- kind: "eye" opens vertically, "mark" slashes in from its root, "mouth" draws out from the center.
-local function piece(kind, id, x, y, w, h, rot, delay)
- local holder = new("Frame", {AnchorPoint=Vector2.new(0.5, 0.5), Position=UDim2.fromScale(x, y), Size=UDim2.fromScale(w, h),
-  Rotation=rot, BackgroundTransparency=1, ZIndex=kind == "mark" and 2 or 4}, mask)
- local glow = kind == "eye" and img(ASSETS.Glow, {Position=UDim2.fromScale(0.5, 0.5), Size=UDim2.fromScale(2.4, 1.6),
-  ImageTransparency=1, ZIndex=3}, holder)
- local sprite = img(id, {AnchorPoint=kind == "mark" and Vector2.new(0.5, 1) or Vector2.new(0.5, 0.5),
-  Position=UDim2.fromScale(0.5, kind == "mark" and 1 or 0.5), Size=UDim2.fromScale(1, 0), ZIndex=5}, holder)
- table.insert(parts, {kind=kind, holder=holder, sprite=sprite, glow=glow, delay=delay, rot=rot})
-end
-piece("eye", ASSETS.Eye, 0.415, 0.24, 0.1, 0.37, -28, 0.32)
-piece("eye", ASSETS.Eye, 0.585, 0.24, 0.1, 0.37, 28, 0.4)
-piece("eye", ASSETS.Eye, 0.43, 0.56, 0.085, 0.31, -24, 0.14)
-piece("eye", ASSETS.Eye, 0.57, 0.56, 0.085, 0.31, 24, 0.22)
-piece("mouth", ASSETS.Mouth, 0.5, 0.79, 0.27, 0.2, 0, 0.58)
-local frng = Random.new(13)
-for i = 1, 12 do
- local side = i % 2 == 0 and 1 or -1
- local x = 0.5 + side * frng:NextNumber(0.13, 0.42)
- piece("mark", ASSETS.Marks[i % 3 + 1], x, frng:NextNumber(0.15, 0.95), frng:NextNumber(0.035, 0.06), frng:NextNumber(0.25, 0.45),
-  side * frng:NextNumber(25, 65), 0.04 + frng:NextNumber(0, 0.55))
-end
+local faceBase = layer(ASSETS.FaceBase, 1, 0.5, 0.5)
+local faceGlow = layer(ASSETS.Glow, 2, 0.5, 0.5)
+-- Centers are measured from the reference image so each feature pops in place.
+local features = {
+ {img=layer(ASSETS.EyesLower, 3, 0.474, 0.449), at=0.18, hit=0.025},
+ {img=layer(ASSETS.EyesUpper, 3, 0.489, 0.212), at=0.42, hit=0.03},
+ {img=layer(ASSETS.Mouth, 3, 0.495, 0.747), at=0.68, hit=0.035, grin=true},
+}
+local redPulse = new("Frame", {Size=UDim2.fromScale(1, 1), BorderSizePixel=0, BackgroundColor3=Color3.fromRGB(255, 0, 20),
+ BackgroundTransparency=1, ZIndex=4}, face)
 
 local function updateFace(now, payload)
- local faceStart = math.max(payload.startsAt + INTRO_END + 0.3, payload.revealAt - 1.6)
+ local faceStart = math.max(payload.startsAt + INTRO_END + 0.3, payload.revealAt - 1.7)
  local a, dur = now - faceStart, payload.revealAt - faceStart
  if a < 0 or dur <= 0 or now >= payload.revealAt then face.Visible = false; return end
  face.Visible = true
- local out = ease((a - (dur - 0.16)) / 0.16)
- face.GroupTransparency = math.max(1 - ease(a / 0.2), out)
- maskScale.Scale = 0.95 + 0.08 * (a / dur) + 0.7 * out
- local shake = 0.003 + 0.002 * math.max(0, 1 - a / 0.25) * 4 + 0.012 * out
- mask.Position = UDim2.fromScale(0.5 + math.noise(now * 18, 1) * shake, 0.5 + math.noise(2, now * 18) * shake)
- aura.ImageTransparency = 0.55 + 0.15 * math.sin(now * 7)
- vignette.ImageTransparency = 0.1 * math.sin(now * 3)
- for i, p in ipairs(parts) do
-  local lt = a - p.delay
-  local pulse = math.sin(now * 11 + i)
-  if p.kind == "eye" then
-   local open = lt <= 0 and 0 or backOut(lt / 0.18)
-   p.sprite.Size = UDim2.fromScale(1 + 0.25 * (1 - math.min(open, 1)), open * (1 + 0.025 * pulse))
-   local flicker = lt < 0.3 and math.noise(now * 45, i) > 0.2
-   p.sprite.ImageTransparency = flicker and 0.6 or 0
-   -- Bright bloom when the eye snaps open, then a steady breathing glow.
-   p.glow.ImageTransparency = lt <= 0 and 1 or math.clamp(0.45 - 0.3 * math.max(0, 1 - lt / 0.25) + 0.12 * pulse, 0, 1)
-  elseif p.kind == "mouth" then
-   local draw = lt <= 0 and 0 or ease(lt / 0.2)
-   p.sprite.Size = UDim2.fromScale(draw * (1 + 0.03 * pulse), 1)
-   p.sprite.ImageTransparency = 0.1 * math.max(0, pulse)
-  else
-   local slash = lt <= 0 and 0 or ease(lt / 0.12)
-   p.sprite.Size = UDim2.fromScale(1, slash)
-   p.sprite.ImageTransparency = math.noise(now * 9, i * 3.1) > 0.4 and 0.6 or 0.05
-   p.holder.Rotation = p.rot + math.noise(now * 3, i) * 6
-  end
+ local out = ease((a - (dur - 0.18)) / 0.18)
+ face.GroupTransparency = math.max(a < 0.03 and 0.5 or 0, out)
+ -- Shake: the slam-in plus a kick each time a feature ignites.
+ local amp = 0.03 * math.exp(-a * 9) + 0.012 * out + 0.002
+ local lit = 0
+ for _, f in ipairs(features) do
+  local lt = a - f.at
+  if lt >= 0 then amp += f.hit * math.exp(-lt * 14) end
+  local on = math.clamp(lt / 0.09, 0, 1)
+  lit += on
+  local flicker = lt >= 0 and lt < 0.22 and math.noise(now * 50, f.at * 10) > 0.15
+  f.img.ImageTransparency = lt < 0 and 1 or (flicker and 0.65 or 0)
+  local pop = lt < 0 and 1.4 or 1 + 0.4 * (1 - on) ^ 2 + 0.06 * math.exp(-math.max(0, lt - 0.09) * 18) * math.cos(lt * 50)
+  f.img.Size = f.grin and UDim2.fromScale(0.35 + 0.65 * on + (pop - 1) * 0.3, pop) or UDim2.fromScale(pop, pop)
  end
+ -- Heartbeat: double thump about once a second.
+ local beat = math.max(math.exp(-((a % 0.9) * 14)), 0.6 * math.exp(-(((a - 0.18) % 0.9) * 14)))
+ faceBase.ImageTransparency = 0
+ faceGlow.ImageTransparency = 1 - (lit / #features) * (0.55 + 0.45 * beat)
+ redPulse.BackgroundTransparency = 1 - (0.08 * beat * lit / #features + 0.35 * out)
+ faceScale.Scale = 1.28 - 0.28 * (1 - (1 - math.min(a / 0.2, 1)) ^ 3) + 0.06 * (a / dur) + 0.025 * beat + 0.8 * out
+ faceRoot.Position = UDim2.fromScale(0.5 + math.noise(now * 30, 1) * amp, 0.5 + math.noise(2, now * 30) * amp)
+ faceRoot.Rotation = math.noise(now * 18, 4) * amp * 40
 end
 
 local function hideGui(state, other)
