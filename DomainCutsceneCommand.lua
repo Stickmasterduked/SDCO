@@ -1,4 +1,5 @@
--- Paste into Roblox Studio Command Bar (View > Command Bar), press Enter.
+-- 1) Upload the files in DomainAssets (Asset Manager > Bulk Import), copy each ID into the ASSETS table below (replace the 0s).
+-- 2) Paste this whole file into the Roblox Studio Command Bar (View > Command Bar) and press Enter.
 local src = [=====[
 -- Shared server timestamps keep every viewer on the same domain introduction.
 local Players = game:GetService("Players")
@@ -16,8 +17,17 @@ local Effects = require(ReplicatedStorage.Combat.Effects)
 local controls
 local RENDER_NAME, INPUT_NAME = "DomainCutsceneCamera", "DomainCutsceneInput"
 local scene
--- Optional: "rbxassetid://<id>" of a full-screen Sukuna face image. Empty = built-in animated face.
-local FACE_IMAGE = ""
+-- Paste the IDs Roblox gives you after uploading the files in DomainAssets.
+local function id(n) return "rbxassetid://" .. n end
+local ASSETS = {
+ Eye = id(0),        -- SukunaEye.png
+ Mouth = id(0),      -- SukunaMouth.png
+ Marks = {id(0), id(0), id(0)}, -- SukunaMark1.png, SukunaMark2.png, SukunaMark3.png
+ Glow = id(0),       -- RedGlow.png
+ Vignette = id(0),   -- SukunaVignette.png
+ Crack = id(0),      -- DomainCrack.png
+ BlockBreak = id(0), -- BlockBreak.ogg
+}
 local INTRO_OPEN, INTRO_END = 1.85, 2.35
 -- This place may omit the default PlayerModule; input sinking and server locks still work.
 task.spawn(function()
@@ -36,7 +46,6 @@ local function new(class, props, parent)
  o.Parent = parent
  return o
 end
-local function capsule(p) new("UICorner", {CornerRadius=UDim.new(1, 0)}, p) end
 local function ease(value)
  value = math.clamp(value, 0, 1)
  return value * value * (3 - 2 * value)
@@ -100,11 +109,25 @@ for i = 1, #WORD do
    stroke=new("UIStroke", {Color=Color3.new(1, 1, 1), Thickness=2.5}, l), scale=new("UIScale", {}, l)})
  end
 end
+local crack = new("ImageLabel", {Size=UDim2.fromScale(1, 1), BackgroundTransparency=1, Image=ASSETS.Crack,
+ ImageTransparency=1, ScaleType=Enum.ScaleType.Stretch, ZIndex=5}, intro)
+local crackScale = new("UIScale", {}, crack)
+local breakSound = new("Sound", {Name="DomainBlockBreak", SoundId=ASSETS.BlockBreak, Volume=1.4}, game:GetService("SoundService"))
+local function playBreak(speed, volume)
+ breakSound.PlaybackSpeed, breakSound.Volume = speed, volume
+ game:GetService("SoundService"):PlayLocalSound(breakSound)
+end
 local introFlash = new("Frame", {Size=UDim2.fromScale(1, 1), BorderSizePixel=0, BackgroundColor3=Color3.new(1, 1, 1),
  BackgroundTransparency=1, ZIndex=6}, intro)
 
-local function updateIntro(t)
+local function updateIntro(t, state)
  if t >= INTRO_END then intro.Visible = false; return end
+ -- Block-break hits: once as the title slams in, once as the card cracks open.
+ if not state.hitTitle and t >= 0.18 then state.hitTitle = true; if t < 0.6 then playBreak(1, 1.4) end end
+ if not state.hitCrack and t >= INTRO_OPEN - 0.18 then state.hitCrack = true; if t < INTRO_OPEN + 0.2 then playBreak(0.82, 1.8) end end
+ local cracked = ease((t - (INTRO_OPEN - 0.18)) / 0.08)
+ crack.ImageTransparency = 1 - cracked * (1 - ease((t - INTRO_OPEN) / 0.3))
+ crackScale.Scale = 1 + 0.15 * ease((t - INTRO_OPEN) / (INTRO_END - INTRO_OPEN))
  intro.Visible = true
  local fadeIn = ease(t / 0.15)
  local open = ease((t - INTRO_OPEN) / (INTRO_END - INTRO_OPEN))
@@ -138,50 +161,42 @@ local function updateIntro(t)
 end
 
 -- Sukuna face: shown while the camera pushes into the caster's face ----------
+local function img(id, props, parent)
+ props.Image, props.BackgroundTransparency, props.BorderSizePixel = id, 1, 0
+ props.AnchorPoint = props.AnchorPoint or Vector2.new(0.5, 0.5)
+ return new("ImageLabel", props, parent)
+end
 local face = new("CanvasGroup", {Name="SukunaFace", Size=UDim2.fromScale(1, 1), BackgroundColor3=Color3.fromRGB(9, 15, 11),
- BackgroundTransparency=0.06, BorderSizePixel=0, GroupTransparency=1, Visible=false, ZIndex=1}, gui)
-new("ImageLabel", {Size=UDim2.fromScale(1, 1), BackgroundTransparency=1, Image=FACE_IMAGE, ScaleType=Enum.ScaleType.Crop,
- Visible=FACE_IMAGE ~= "", ZIndex=1}, face)
+ BackgroundTransparency=0.04, BorderSizePixel=0, GroupTransparency=1, Visible=false, ZIndex=1}, gui)
 local mask = new("Frame", {AnchorPoint=Vector2.new(0.5, 0.5), Position=UDim2.fromScale(0.5, 0.5), Size=UDim2.fromScale(1, 1),
- BackgroundTransparency=1, Visible=FACE_IMAGE == "", ZIndex=2}, face)
-new("UIAspectRatioConstraint", {AspectRatio=1.15}, mask)
+ BackgroundTransparency=1, ZIndex=2}, face)
+new("UIAspectRatioConstraint", {AspectRatio=16 / 9}, mask)
 local maskScale = new("UIScale", {}, mask)
-local aura = new("Frame", {AnchorPoint=Vector2.new(0.5, 0.5), Position=UDim2.fromScale(0.5, 0.45), Size=UDim2.fromScale(0.75, 0.95),
- BackgroundColor3=Color3.fromRGB(150, 0, 10), BorderSizePixel=0, ZIndex=1}, mask)
-capsule(aura)
+local aura = img(ASSETS.Glow, {Position=UDim2.fromScale(0.5, 0.48), Size=UDim2.fromScale(0.75, 1.3), ZIndex=1}, mask)
+local vignette = img(ASSETS.Vignette, {AnchorPoint=Vector2.zero, Size=UDim2.fromScale(1, 1), ZIndex=10,
+ ScaleType=Enum.ScaleType.Stretch}, face)
 local parts = {}
-local function piece(x, y, w, h, rot, delay, color, z)
- local f = new("Frame", {AnchorPoint=Vector2.new(0.5, 0.5), Position=UDim2.fromScale(x, y), Size=UDim2.fromScale(w, h),
-  Rotation=rot, BackgroundColor3=color, BorderSizePixel=0, ZIndex=z or 3}, mask)
- capsule(f)
- local p = {frame=f, delay=delay, rot=rot, x=x, y=y, scale=new("UIScale", {Scale=0}, f),
-  stroke=new("UIStroke", {Color=color, Thickness=5, Transparency=0.5}, f)}
- table.insert(parts, p)
- return p
+-- kind: "eye" opens vertically, "mark" slashes in from its root, "mouth" draws out from the center.
+local function piece(kind, id, x, y, w, h, rot, delay)
+ local holder = new("Frame", {AnchorPoint=Vector2.new(0.5, 0.5), Position=UDim2.fromScale(x, y), Size=UDim2.fromScale(w, h),
+  Rotation=rot, BackgroundTransparency=1, ZIndex=kind == "mark" and 2 or 4}, mask)
+ local glow = kind == "eye" and img(ASSETS.Glow, {Position=UDim2.fromScale(0.5, 0.5), Size=UDim2.fromScale(2.4, 1.6),
+  ImageTransparency=1, ZIndex=3}, holder)
+ local sprite = img(id, {AnchorPoint=kind == "mark" and Vector2.new(0.5, 1) or Vector2.new(0.5, 0.5),
+  Position=UDim2.fromScale(0.5, kind == "mark" and 1 or 0.5), Size=UDim2.fromScale(1, 0), ZIndex=5}, holder)
+ table.insert(parts, {kind=kind, holder=holder, sprite=sprite, glow=glow, delay=delay, rot=rot})
 end
-local function eye(x, y, w, h, rot, delay)
- local p = piece(x, y, w, h, rot, delay, Color3.fromRGB(255, 38, 22))
- new("UIGradient", {Rotation=90, Color=ColorSequence.new(Color3.fromRGB(255, 120, 80), Color3.fromRGB(190, 8, 8))}, p.frame)
- local slit = new("Frame", {AnchorPoint=Vector2.new(0.5, 0.5), Position=UDim2.fromScale(0.5, 0.42), Size=UDim2.fromScale(0.16, 0.1),
-  BackgroundColor3=Color3.fromRGB(70, 0, 0), BorderSizePixel=0, ZIndex=4}, p.frame)
- capsule(slit)
- p.eye = true
-end
-eye(0.36, 0.25, 0.13, 0.4, -28, 0.30)
-eye(0.64, 0.25, 0.13, 0.4, 28, 0.38)
-eye(0.38, 0.6, 0.115, 0.32, -24, 0.12) -- lower eyes open first
-eye(0.62, 0.6, 0.115, 0.32, 24, 0.2)
-local pink = Color3.fromRGB(255, 55, 150)
-piece(0.445, 0.8, 0.15, 0.035, 28, 0.55, pink)
-piece(0.555, 0.8, 0.15, 0.035, -28, 0.6, pink)
+piece("eye", ASSETS.Eye, 0.415, 0.24, 0.1, 0.37, -28, 0.32)
+piece("eye", ASSETS.Eye, 0.585, 0.24, 0.1, 0.37, 28, 0.4)
+piece("eye", ASSETS.Eye, 0.43, 0.56, 0.085, 0.31, -24, 0.14)
+piece("eye", ASSETS.Eye, 0.57, 0.56, 0.085, 0.31, 24, 0.22)
+piece("mouth", ASSETS.Mouth, 0.5, 0.79, 0.27, 0.2, 0, 0.58)
 local frng = Random.new(13)
-for i = 1, 16 do
+for i = 1, 12 do
  local side = i % 2 == 0 and 1 or -1
- local x = 0.5 + side * frng:NextNumber(0.08, 0.48)
- local red = Color3.fromRGB(frng:NextInteger(170, 255), frng:NextInteger(0, 40), frng:NextInteger(20, 70))
- local p = piece(x, frng:NextNumber(0.05, 1), frng:NextNumber(0.012, 0.03), frng:NextNumber(0.06, 0.2),
-  side * frng:NextNumber(10, 50), 0.05 + frng:NextNumber(0, 0.6), red, 2)
- p.streak = true
+ local x = 0.5 + side * frng:NextNumber(0.13, 0.42)
+ piece("mark", ASSETS.Marks[i % 3 + 1], x, frng:NextNumber(0.15, 0.95), frng:NextNumber(0.035, 0.06), frng:NextNumber(0.25, 0.45),
+  side * frng:NextNumber(25, 65), 0.04 + frng:NextNumber(0, 0.55))
 end
 
 local function updateFace(now, payload)
@@ -190,23 +205,31 @@ local function updateFace(now, payload)
  if a < 0 or dur <= 0 or now >= payload.revealAt then face.Visible = false; return end
  face.Visible = true
  local out = ease((a - (dur - 0.16)) / 0.16)
- face.GroupTransparency = math.max(1 - ease(a / 0.22), out)
- maskScale.Scale = 0.94 + 0.1 * (a / dur) + 0.6 * out
- local shake = 0.004 + 0.012 * out
+ face.GroupTransparency = math.max(1 - ease(a / 0.2), out)
+ maskScale.Scale = 0.95 + 0.08 * (a / dur) + 0.7 * out
+ local shake = 0.003 + 0.002 * math.max(0, 1 - a / 0.25) * 4 + 0.012 * out
  mask.Position = UDim2.fromScale(0.5 + math.noise(now * 18, 1) * shake, 0.5 + math.noise(2, now * 18) * shake)
- aura.BackgroundTransparency = 0.8 + 0.08 * math.sin(now * 7)
+ aura.ImageTransparency = 0.55 + 0.15 * math.sin(now * 7)
+ vignette.ImageTransparency = 0.1 * math.sin(now * 3)
  for i, p in ipairs(parts) do
   local lt = a - p.delay
-  local pop = math.clamp(lt / 0.15, 0, 1)
-  local flicker = lt < 0.35 and math.noise(now * 45, i) > 0.25
-  p.scale.Scale = lt <= 0 and 0 or (pop < 1 and backOut(pop) or 1 + 0.035 * math.sin(now * 26 + i))
-  p.frame.BackgroundTransparency = flicker and 0.7 or 0
-  p.stroke.Transparency = 0.35 + 0.3 * math.sin(now * 12 + i)
-  if p.streak then
-   p.frame.BackgroundTransparency = math.noise(now * 9, i * 3.1) > 0.35 and 0.85 or 0.1
-   p.frame.Rotation = p.rot + math.noise(now * 3, i) * 8
-  elseif p.eye then
-   p.stroke.Thickness = 5 + 4 * math.sin(now * 10 + i)
+  local pulse = math.sin(now * 11 + i)
+  if p.kind == "eye" then
+   local open = lt <= 0 and 0 or backOut(lt / 0.18)
+   p.sprite.Size = UDim2.fromScale(1 + 0.25 * (1 - math.min(open, 1)), open * (1 + 0.025 * pulse))
+   local flicker = lt < 0.3 and math.noise(now * 45, i) > 0.2
+   p.sprite.ImageTransparency = flicker and 0.6 or 0
+   -- Bright bloom when the eye snaps open, then a steady breathing glow.
+   p.glow.ImageTransparency = lt <= 0 and 1 or math.clamp(0.45 - 0.3 * math.max(0, 1 - lt / 0.25) + 0.12 * pulse, 0, 1)
+  elseif p.kind == "mouth" then
+   local draw = lt <= 0 and 0 or ease(lt / 0.2)
+   p.sprite.Size = UDim2.fromScale(draw * (1 + 0.03 * pulse), 1)
+   p.sprite.ImageTransparency = 0.1 * math.max(0, pulse)
+  else
+   local slash = lt <= 0 and 0 or ease(lt / 0.12)
+   p.sprite.Size = UDim2.fromScale(1, slash)
+   p.sprite.ImageTransparency = math.noise(now * 9, i * 3.1) > 0.4 and 0.6 or 0.05
+   p.holder.Rotation = p.rot + math.noise(now * 3, i) * 6
   end
  end
 end
@@ -359,7 +382,7 @@ local function start(payload)
   local root = caster and caster:FindFirstChild("HumanoidRootPart")
   if root then origin = root.CFrame end
   local t = math.max(0, now-payload.startsAt)
-  updateIntro(t)
+  updateIntro(t, state)
   updateFace(now, payload)
   local approach = ease(t / 4.75)
   local reveal = ease((now-payload.revealAt) / (payload.endsAt-payload.revealAt))
