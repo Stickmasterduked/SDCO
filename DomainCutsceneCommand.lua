@@ -140,6 +140,7 @@ local introFlash = new("Frame", {Size=UDim2.fromScale(1, 1), BorderSizePixel=0, 
  BackgroundTransparency=1, ZIndex=10}, intro)
 
 local function updateIntro(t, state)
+ if true then intro.Visible = false; return end -- title card removed
  if t >= INTRO_END then intro.Visible = false; return end
  intro.Visible = true
  state.hitsPlayed = state.hitsPlayed or {}
@@ -259,13 +260,13 @@ local redPulse = new("Frame", {Size=UDim2.fromScale(1, 1), BorderSizePixel=0, Ba
  BackgroundTransparency=1, ZIndex=4}, face)
 
 local function updateFace(now, payload)
- local faceStart = payload.startsAt + INTRO_OPEN
+ local faceStart = payload.startsAt
  local a, dur = now - faceStart, payload.revealAt - faceStart
  if a < 0 or dur <= 0 or now >= payload.revealAt then face.Visible = false; return end
  face.Visible = true
  -- Smooth fade in from nothing and a smooth fade out into the reveal; no hard cuts.
- local fadeIn = ease(a / 0.8)
- local out = ease((a - (dur - 0.6)) / 0.6)
+ local fadeIn = ease(a / 1)
+ local out = ease((a - (dur - 1)) / 1)
  face.GroupTransparency = 1 - fadeIn * (1 - out)
  faceBase.ImageTransparency = 0
  faceBase.Image = ASSETS.Fire[math.floor(a * 16) % #ASSETS.Fire + 1]
@@ -476,7 +477,7 @@ local function start(payload)
    flash.BackgroundTransparency = 1-0.6*math.max(0, 1-age/0.35)
    grade.Contrast = 0.18+0.16*(1-reveal)
   else
-   title.TextTransparency = 1 - 0.9 * ease((t - INTRO_END) / 0.4)
+   title.TextTransparency = 1
   end
  end)
  task.delay(math.max(0, payload.endsAt-workspace:GetServerTimeNow())+0.1, function()
