@@ -30,7 +30,7 @@ local ASSETS = {
  Crack = id(0),      -- DomainCrack.png
  BlockBreak = id(0), -- BlockBreak.ogg
 }
-local INTRO_OPEN, INTRO_END = 1.85, 2.35
+local INTRO_OPEN, INTRO_END = 2.6, 3.1
 -- This place may omit the default PlayerModule; input sinking and server locks still work.
 task.spawn(function()
  local module = player.PlayerScripts:WaitForChild("PlayerModule", 5)
@@ -103,7 +103,8 @@ new("UIGradient", {Transparency=edgeFade}, band)
 
 -- Letters slam in word by word; every landing is a hit that shakes the card.
 local WORD = "DOMAIN EXPANSION"
-local WORD_START, STEP, SLAM = {0.1, 0.52}, 0.04, 0.06
+-- Every letter slams in on the same frame.
+local WORD_START, STEP, SLAM = {0.12, 0.12}, 0, 0.07
 local letters, hits = {}, {}
 local word, kw = 1, 0
 for i = 1, #WORD do
@@ -122,15 +123,13 @@ for i = 1, #WORD do
    y=0.455 + u * 0.075 + (i % 2 == 0 and 0.018 or -0.018), spin=(i % 2 == 0 and -18 or 18),
    stroke=new("UIStroke", {Color=Color3.new(1, 1, 1), Thickness=3}, main), scale=new("UIScale", {}, main),
    red=label(Color3.fromRGB(255, 30, 60), 4), cyan=label(Color3.fromRGB(30, 230, 255), 4)})
-  table.insert(hits, {time=start + SLAM, amp=0.008})
   kw += 1
  end
 end
 -- Word landings and the final crack hit far harder than single letters.
-local WORD_HITS = {WORD_START[1] + 5 * STEP + SLAM, WORD_START[2] + 8 * STEP + SLAM}
+local WORD_HITS = {WORD_START[1] + SLAM, WORD_START[1] + SLAM}
 local CRACK_AT = INTRO_OPEN - 0.18
-table.insert(hits, {time=WORD_HITS[1], amp=0.035, sound=1.05, impact=true})
-table.insert(hits, {time=WORD_HITS[2], amp=0.05, sound=0.95, impact=true})
+table.insert(hits, {time=WORD_HITS[1], amp=0.075, sound=1, impact=true})
 table.insert(hits, {time=CRACK_AT, amp=0.07, sound=0.78, impact=true})
 
 local crack = new("ImageLabel", {AnchorPoint=Vector2.new(0.5, 0.5), Position=UDim2.fromScale(0.5, 0.5), Size=UDim2.fromScale(1, 1),
@@ -172,7 +171,7 @@ local function updateIntro(t, state)
  skyTop.BackgroundTransparency, skyBottom.BackgroundTransparency = 0, 0
  shakeLayer.Position = UDim2.fromScale(0.5 + math.noise(t * 34, 1) * amp * 1.3, 0.5 + math.noise(3, t * 34) * amp * 1.3)
  shakeLayer.Rotation = math.noise(t * 20, 9) * amp * 60
- shakeScale.Scale = 1 + amp * 2.2 + 0.05 * ease((t - WORD_HITS[2]) / 0.9)
+ shakeScale.Scale = 1 + amp * 2.2 + 0.05 * ease((t - WORD_HITS[2]) / 2)
  impactFrame.Visible = impact
  band.Size = UDim2.new(1.4, 0, 0.008 + amp * 0.5 + 0.06 * burst, 0)
  bandGlow.Size = UDim2.new(1.4, 0, 0.06 + amp * 3 + 0.03 * math.sin(t * 9) + 0.5 * burst, 0)
@@ -260,7 +259,8 @@ local redPulse = new("Frame", {Size=UDim2.fromScale(1, 1), BorderSizePixel=0, Ba
  BackgroundTransparency=1, ZIndex=4}, face)
 
 local function updateFace(now, payload)
- local faceStart = math.max(payload.startsAt + INTRO_END + 0.3, payload.revealAt - 1.7)
+ -- The face holds from the end of the title card right up to the reveal.
+ local faceStart = payload.startsAt + INTRO_END + 0.05
  local a, dur = now - faceStart, payload.revealAt - faceStart
  if a < 0 or dur <= 0 or now >= payload.revealAt then face.Visible = false; return end
  face.Visible = true
