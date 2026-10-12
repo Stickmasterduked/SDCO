@@ -20,7 +20,9 @@ local scene
 -- Paste the IDs Roblox gives you after uploading the files in DomainAssets.
 local function id(n) return "rbxassetid://" .. n end
 local ASSETS = {
- FaceBase = id(0),   -- SukunaFaceBase.png
+ -- SukunaFire01.png ... SukunaFire16.png, in order (the burning face loop).
+ Fire = {id(0), id(0), id(0), id(0), id(0), id(0), id(0), id(0),
+  id(0), id(0), id(0), id(0), id(0), id(0), id(0), id(0)},
  EyesLower = id(0),  -- SukunaEyesLower.png
  EyesUpper = id(0),  -- SukunaEyesUpper.png
  Mouth = id(0),      -- SukunaMouth.png
@@ -227,14 +229,33 @@ local function layer(image, z, cx, cy)
  return new("ImageLabel", {Image=image, AnchorPoint=Vector2.new(cx, cy), Position=UDim2.fromScale(cx, cy),
   Size=UDim2.fromScale(1, 1), BackgroundTransparency=1, ScaleType=Enum.ScaleType.Stretch, ImageTransparency=1, ZIndex=z}, faceRoot)
 end
-local faceBase = layer(ASSETS.FaceBase, 1, 0.5, 0.5)
+local faceBase = layer(ASSETS.Fire[1], 1, 0.5, 0.5)
 local faceGlow = layer(ASSETS.Glow, 2, 0.5, 0.5)
 -- Centers are measured from the reference image so each feature pops in place.
+local IGNITE = 0.3
 local features = {
- {img=layer(ASSETS.EyesLower, 3, 0.474, 0.449), at=0.18, hit=0.025},
- {img=layer(ASSETS.EyesUpper, 3, 0.489, 0.212), at=0.42, hit=0.03},
- {img=layer(ASSETS.Mouth, 3, 0.495, 0.747), at=0.68, hit=0.035, grin=true},
+ {img=layer(ASSETS.EyesLower, 3, 0.474, 0.449)},
+ {img=layer(ASSETS.EyesUpper, 3, 0.489, 0.212)},
+ {img=layer(ASSETS.Mouth, 3, 0.495, 0.747), grin=true},
 }
+-- Embers drifting up through the flames.
+local embers = {}
+local erng = Random.new(31)
+for i = 1, 46 do
+ local size = erng:NextInteger(3, 9)
+ local e = new("Frame", {AnchorPoint=Vector2.new(0.5, 0.5), Size=UDim2.fromOffset(size, size), BorderSizePixel=0,
+  BackgroundColor3=Color3.fromRGB(255, erng:NextInteger(70, 190), erng:NextInteger(20, 60)), ZIndex=4}, faceRoot)
+ new("UICorner", {CornerRadius=UDim.new(1, 0)}, e)
+ embers[i] = {frame=e, x=erng:NextNumber(0, 1), offset=erng:NextNumber(0, 1), speed=erng:NextNumber(0.35, 0.9),
+  sway=erng:NextNumber(0.01, 0.04), phase=erng:NextNumber(0, 6.28)}
+end
+-- Load every flipbook frame up front so the fire never blinks on its first loop.
+task.spawn(function()
+ local list = {}
+ for _, image in ipairs(ASSETS.Fire) do table.insert(list, image) end
+ for _, image in ipairs({ASSETS.EyesLower, ASSETS.EyesUpper, ASSETS.Mouth, ASSETS.Glow, ASSETS.Crack}) do table.insert(list, image) end
+ pcall(function() game:GetService("ContentProvider"):PreloadAsync(list) end)
+end)
 local redPulse = new("Frame", {Size=UDim2.fromScale(1, 1), BorderSizePixel=0, BackgroundColor3=Color3.fromRGB(255, 0, 20),
  BackgroundTransparency=1, ZIndex=4}, face)
 
@@ -245,24 +266,30 @@ local function updateFace(now, payload)
  face.Visible = true
  local out = ease((a - (dur - 0.18)) / 0.18)
  face.GroupTransparency = math.max(a < 0.03 and 0.5 or 0, out)
- -- Shake: the slam-in plus a kick each time a feature ignites.
- local amp = 0.03 * math.exp(-a * 9) + 0.012 * out + 0.002
- local lit = 0
+ faceBase.Image = ASSETS.Fire[math.floor(a * 16) % #ASSETS.Fire + 1]
+ -- Everything ignites together on one big hit.
+ local lt = a - IGNITE
+ local on = math.clamp(lt / 0.08, 0, 1)
+ local lit = on * #features
+ local amp = 0.03 * math.exp(-a * 9) + 0.012 * out + 0.003 + (lt >= 0 and 0.06 * math.exp(-lt * 11) or 0)
+ local flicker = lt >= 0 and lt < 0.2 and math.noise(now * 50, 3) > 0.2
+ local pop = lt < 0 and 1.45 or 1 + 0.45 * (1 - on) ^ 2 + 0.07 * math.exp(-math.max(0, lt - 0.08) * 16) * math.cos(lt * 50)
  for _, f in ipairs(features) do
-  local lt = a - f.at
-  if lt >= 0 then amp += f.hit * math.exp(-lt * 14) end
-  local on = math.clamp(lt / 0.09, 0, 1)
-  lit += on
-  local flicker = lt >= 0 and lt < 0.22 and math.noise(now * 50, f.at * 10) > 0.15
-  f.img.ImageTransparency = lt < 0 and 1 or (flicker and 0.65 or 0)
-  local pop = lt < 0 and 1.4 or 1 + 0.4 * (1 - on) ^ 2 + 0.06 * math.exp(-math.max(0, lt - 0.09) * 18) * math.cos(lt * 50)
+  f.img.ImageTransparency = lt < 0 and 1 or (flicker and 0.6 or 0)
   f.img.Size = f.grin and UDim2.fromScale(0.35 + 0.65 * on + (pop - 1) * 0.3, pop) or UDim2.fromScale(pop, pop)
  end
+ for _, e in ipairs(embers) do
+  local y = 1.05 - ((e.offset + a * e.speed) % 1.1)
+  e.frame.Position = UDim2.fromScale(e.x + math.sin(a * 3 + e.phase) * e.sway, y)
+  e.frame.BackgroundTransparency = 0.1 + 0.9 * math.clamp((0.35 - y) / 0.35, 0, 1) + 0.3 * math.max(0, math.noise(now * 8, e.phase))
+ end
+ -- Ignition flash.
+ local igniteFlash = lt >= 0 and math.exp(-lt * 9) or 0
  -- Heartbeat: double thump about once a second.
  local beat = math.max(math.exp(-((a % 0.9) * 14)), 0.6 * math.exp(-(((a - 0.18) % 0.9) * 14)))
  faceBase.ImageTransparency = 0
  faceGlow.ImageTransparency = 1 - (lit / #features) * (0.55 + 0.45 * beat)
- redPulse.BackgroundTransparency = 1 - (0.08 * beat * lit / #features + 0.35 * out)
+ redPulse.BackgroundTransparency = 1 - math.min(1, 0.08 * beat * lit / #features + 0.35 * out + 0.45 * igniteFlash)
  faceScale.Scale = 1.28 - 0.28 * (1 - (1 - math.min(a / 0.2, 1)) ^ 3) + 0.06 * (a / dur) + 0.025 * beat + 0.8 * out
  faceRoot.Position = UDim2.fromScale(0.5 + math.noise(now * 30, 1) * amp, 0.5 + math.noise(2, now * 30) * amp)
  faceRoot.Rotation = math.noise(now * 18, 4) * amp * 40
