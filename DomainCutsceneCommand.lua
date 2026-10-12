@@ -231,7 +231,7 @@ end
 local faceBase = layer(ASSETS.Fire[1], 1, 0.5, 0.5)
 local faceGlow = layer(ASSETS.Glow, 2, 0.5, 0.5)
 -- Centers are measured from the reference image so each feature pops in place.
-local IGNITE = 0.3
+local IGNITE = 0.85
 local features = {
  {img=layer(ASSETS.EyesLower, 3, 0.474, 0.449)},
  {img=layer(ASSETS.EyesUpper, 3, 0.489, 0.212)},
@@ -260,18 +260,19 @@ local redPulse = new("Frame", {Size=UDim2.fromScale(1, 1), BorderSizePixel=0, Ba
 
 local function updateFace(now, payload)
  -- The face holds from the end of the title card right up to the reveal.
- local faceStart = payload.startsAt + INTRO_END + 0.05
+ local faceStart = payload.startsAt + INTRO_OPEN
  local a, dur = now - faceStart, payload.revealAt - faceStart
  if a < 0 or dur <= 0 or now >= payload.revealAt then face.Visible = false; return end
  face.Visible = true
  local out = ease((a - (dur - 0.18)) / 0.18)
- face.GroupTransparency = math.max(a < 0.03 and 0.5 or 0, out)
+ face.GroupTransparency = out
+ local fadeIn = ease(a / 0.7)
  faceBase.Image = ASSETS.Fire[math.floor(a * 16) % #ASSETS.Fire + 1]
  -- Everything ignites together on one big hit.
  local lt = a - IGNITE
  local on = math.clamp(lt / 0.08, 0, 1)
  local lit = on * #features
- local amp = 0.03 * math.exp(-a * 9) + 0.012 * out + 0.003 + (lt >= 0 and 0.06 * math.exp(-lt * 11) or 0)
+ local amp = 0.006 * math.exp(-a * 3) + 0.012 * out + 0.003 + (lt >= 0 and 0.06 * math.exp(-lt * 11) or 0)
  local flicker = lt >= 0 and lt < 0.2 and math.noise(now * 50, 3) > 0.2
  local pop = lt < 0 and 1.45 or 1 + 0.45 * (1 - on) ^ 2 + 0.07 * math.exp(-math.max(0, lt - 0.08) * 16) * math.cos(lt * 50)
  for _, f in ipairs(features) do
@@ -281,16 +282,16 @@ local function updateFace(now, payload)
  for _, e in ipairs(embers) do
   local y = 1.05 - ((e.offset + a * e.speed) % 1.1)
   e.frame.Position = UDim2.fromScale(e.x + math.sin(a * 3 + e.phase) * e.sway, y)
-  e.frame.BackgroundTransparency = 0.1 + 0.9 * math.clamp((0.35 - y) / 0.35, 0, 1) + 0.3 * math.max(0, math.noise(now * 8, e.phase))
+  e.frame.BackgroundTransparency = (1 - fadeIn) + 0.1 + 0.9 * math.clamp((0.35 - y) / 0.35, 0, 1) + 0.3 * math.max(0, math.noise(now * 8, e.phase))
  end
  -- Ignition flash.
  local igniteFlash = lt >= 0 and math.exp(-lt * 9) or 0
  -- Heartbeat: double thump about once a second.
  local beat = math.max(math.exp(-((a % 0.9) * 14)), 0.6 * math.exp(-(((a - 0.18) % 0.9) * 14)))
- faceBase.ImageTransparency = 0
+ faceBase.ImageTransparency = 1 - fadeIn
  faceGlow.ImageTransparency = 1 - (lit / #features) * (0.55 + 0.45 * beat)
  redPulse.BackgroundTransparency = 1 - math.min(1, 0.08 * beat * lit / #features + 0.35 * out + 0.45 * igniteFlash)
- faceScale.Scale = 1.28 - 0.28 * (1 - (1 - math.min(a / 0.2, 1)) ^ 3) + 0.06 * (a / dur) + 0.025 * beat + 0.8 * out
+ faceScale.Scale = 1.18 - 0.18 * (1 - (1 - math.min(a / 0.8, 1)) ^ 3) + 0.06 * (a / dur) + 0.025 * beat + 0.8 * out
  faceRoot.Position = UDim2.fromScale(0.5 + math.noise(now * 30, 1) * amp, 0.5 + math.noise(2, now * 30) * amp)
  faceRoot.Rotation = math.noise(now * 18, 4) * amp * 40
 end
