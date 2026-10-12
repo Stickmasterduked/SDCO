@@ -1,3 +1,5 @@
+-- Paste into the Roblox Studio Command Bar and press Enter.
+local OWNER_CHECK = ' if player.Name:lower() ~= "merreystantach2" then return end -- owner only'
 local src = [=====[-- Domain Expansion client: T activates, no cutscene or overlay.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -7,6 +9,7 @@ local remote = ReplicatedStorage:WaitForChild("DomainCutscene")
 local PoseAnimator = require(ReplicatedStorage.Combat.PoseAnimator)
 local Effects = require(ReplicatedStorage.Combat.Effects)
 local tracks = {}
+local OWNER = "merreystantach2" -- only this player can use the domain
 
 local function casterModel(payload)
  local caster = payload.caster
@@ -50,6 +53,7 @@ remote.OnClientEvent:Connect(function(action, payload)
 end)
 
 UserInputService.InputBegan:Connect(function(input, processed)
+ if player.Name:lower() ~= OWNER:lower() then return end
  if processed or input.KeyCode ~= Enum.KeyCode.T or UserInputService:GetFocusedTextBox()
   or player:GetAttribute("InMenu") or player:GetAttribute("DisclaimerOpen") then return end
  local backpack = player:FindFirstChildOfClass("Backpack")
@@ -62,10 +66,21 @@ end)
 
 remote:FireServer("Ready")
 ]=====]
-local n = 0
-for _, root in ipairs({game.StarterPlayer, game.ReplicatedStorage, game.StarterGui, game.ServerScriptService}) do
+local client, server = 0, 0
+for _, root in ipairs({game.StarterPlayer, game.StarterPack, game.ReplicatedStorage, game.ServerStorage, game.ServerScriptService, workspace, game.StarterGui}) do
  for _, v in ipairs(root:GetDescendants()) do
-  if v.Name == "DomainCutsceneClient" and v:IsA("LuaSourceContainer") then v.Source = src; n += 1 end
+  if v:IsA("LuaSourceContainer") then
+   if v.Name == "DomainCutsceneClient" then
+    v.Source = src; client += 1
+   else
+    -- Server gate: the tool script refuses anyone but the owner.
+    local hook = "activateDomain.OnServerEvent:Connect(function(player)"
+    local i, j = v.Source:find(hook, 1, true)
+    if i and not v.Source:find("owner only", 1, true) then
+     v.Source = v.Source:sub(1, j) .. OWNER_CHECK .. v.Source:sub(j + 1); server += 1
+    end
+   end
+  end
  end
 end
-print("DomainCutsceneClient updated:", n)
+print("Domain: client scripts updated", client, "| server tool scripts locked to owner", server)
