@@ -91,13 +91,67 @@ print(Data["Gems"])           -- 5   (same as Data.Gems)
 
 ## 6. Where to change things in the game
 
-Open `AnimeIncrementalGame` and look at **section 2. SETTINGS**:
+Open **ReplicatedStorage > Shared > GameConfig** (colors and fonts are in **UI > Theme**):
 
 | You want to...            | Change this        |
 |---------------------------|--------------------|
-| Add a hatchable character | `CHARACTERS`       |
-| Add a chapter/enemy       | `CHAPTERS`         |
-| Change egg prices         | `EGGS`             |
-| Add a shop upgrade        | `UPGRADES`         |
-| Hook up real gamepasses   | `GAMEPASSES` → `Id`|
+| Add a hatchable character | `GameConfig.Characters` |
+| Add a chapter/enemy       | `GameConfig.Chapters`   |
+| Change egg prices         | `GameConfig.Eggs`       |
+| Add a shop upgrade        | `GameConfig.Upgrades`   |
+| Hook up real gamepasses   | `GameConfig.Gamepasses` → `PassId` |
+| Change colors / font      | `UI > Theme`            |
 | Add pictures              | find `Image = ""` and put `"rbxassetid://123456"` |
+
+## 7. ModuleScripts and `require`
+
+A ModuleScript doesn't run on its own. It **returns a table** that other scripts borrow:
+
+```lua
+-- inside GameConfig (ModuleScript)
+local GameConfig = {}
+GameConfig.StagesPerChapter = 10
+return GameConfig            -- this is what require() gives back
+
+-- inside any other script
+local GameConfig = require(game.ReplicatedStorage.Shared.GameConfig)
+print(GameConfig.StagesPerChapter) --> 10
+```
+
+`function Formulas.IsBoss(stage)` puts a function **inside** the Formulas table,
+so other scripts can call `Formulas.IsBoss(20)`.
+
+## 8. Server vs Client (RemoteEvents)
+
+```lua
+-- CLIENT (ClientMain): "I clicked!"
+Remotes.Attack:FireServer()
+
+-- SERVER (GameServer): hears it. Roblox automatically adds WHO sent it as the first value.
+Remotes.Attack.OnServerEvent:Connect(function(player)
+    -- deal damage...
+end)
+
+-- SERVER: "here's your new data"
+Remotes.DataUpdated:FireClient(player, data)
+
+-- CLIENT: hears it
+Remotes.DataUpdated.OnClientEvent:Connect(function(data)
+    print(data.Coins)
+end)
+```
+
+**Rule:** never trust the client. The client says *what it wants* and the server checks if it's allowed.
+
+## 9. `pcall`: "try this, and don't crash if it fails"
+
+```lua
+local ok, result = pcall(function()
+    return store:GetAsync("Player_123")  -- talks to Roblox servers, which can fail
+end)
+if ok then
+    -- result = the saved data
+else
+    -- result = the error message
+end
+```

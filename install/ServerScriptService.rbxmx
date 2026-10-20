@@ -1,0 +1,598 @@
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
+<Item class="Script" referent="RBX1"><Properties>
+<string name="Name">GameServer</string>
+<ProtectedString name="Source"><![CDATA[--[[
+	GameServer  (Script in ServerScriptService)
+
+	The "boss" of the server. It doesn't do much itself. It:
+	  1. creates the RemoteEvents (the "phone lines" between client and server)
+	  2. starts up the Services (DataService, CombatService, ShopService)
+	  3. connects player join/leave and client requests to the right service
+
+	CLIENT vs SERVER:
+	  - Server (this Script) = Roblox's computer. It's the truth: it holds data and saves it.
+	  - Client (LocalScript) = the player's computer. It draws the UI and sends requests.
+	  - RemoteEvent = how they talk.
+	        client -> server:  Remote:FireServer(...)       server hears it with  Remote.OnServerEvent
+	        server -> client:  Remote:FireClient(player, ...) client hears it with  Remote.OnClientEvent
+]]
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
+
+---------------------------------------------------------------------------
+-- 1. CREATE THE REMOTEEVENTS
+---------------------------------------------------------------------------
+local REMOTE_NAMES = {
+	-- client -> server (requests)
+	"Ready",       -- "my UI is built, send me my stuff"
+	"Attack",      -- "I clicked attack"
+	"BuyUpgrade",  -- "I want to buy this upgrade"
+	"HatchEgg",    -- "I want to hatch this egg"
+	-- server -> client (updates)
+	"DataUpdated",   -- here is your latest data
+	"EnemyUpdated",  -- here is your new enemy
+	"EnemyHit",      -- your enemy took damage
+	"EnemyDefeated", -- your enemy died, here are your rewards
+	"Hatched",       -- you hatched this character
+	"Notify",        -- show a little message
+}
+
+local remoteFolder = Instance.new("Folder")
+remoteFolder.Name = "Remotes"
+
+local remotes = {} -- remotes.Attack, remotes.Notify, ... (easy to pass around)
+for _, name in ipairs(REMOTE_NAMES) do
+	local remote = Instance.new("RemoteEvent")
+	remote.Name = name
+	remote.Parent = remoteFolder
+	remotes[name] = remote
+end
+remoteFolder.Parent = ReplicatedStorage -- parent LAST so the client sees all of them at once
+
+---------------------------------------------------------------------------
+-- 2. START THE SERVICES
+---------------------------------------------------------------------------
+local Services = ServerScriptService.Services
+local DataService = require(Services.DataService)
+local CombatService = require(Services.CombatService)
+local ShopService = require(Services.ShopService)
+
+DataService.Init(remotes)
+CombatService.Init(remotes)
+ShopService.Init(remotes)
+
+---------------------------------------------------------------------------
+-- 3. PLAYERS JOINING AND LEAVING
+---------------------------------------------------------------------------
+local function onPlayerAdded(player)
+	DataService.Load(player)            -- load their save
+	ShopService.CheckGamepasses(player) -- turn on gamepasses they own
+	DataService.Push(player)            -- send data to their screen
+	CombatService.SpawnEnemy(player)    -- give them an enemy
+end
+
+local function onPlayerRemoving(player)
+	CombatService.Remove(player)
+	ShopService.Remove(player)
+	DataService.Release(player) -- saves before forgetting them
+end
+
+Players.PlayerAdded:Connect(onPlayerAdded)
+Players.PlayerRemoving:Connect(onPlayerRemoving)
+
+-- In Studio you can join BEFORE this script runs, so handle anyone already here
+for _, player in ipairs(Players:GetPlayers()) do
+	task.spawn(onPlayerAdded, player)
+end
+
+---------------------------------------------------------------------------
+-- 4. LISTEN TO CLIENT REQUESTS
+-- OnServerEvent always gives the PLAYER who sent it as the first thing,
+-- then whatever the client passed in FireServer(...).
+---------------------------------------------------------------------------
+remotes.Ready.OnServerEvent:Connect(function(player)
+	DataService.Push(player)
+	CombatService.SendState(player)
+end)
+
+remotes.Attack.OnServerEvent:Connect(CombatService.HandleAttack) -- same as function(player) CombatService.HandleAttack(player) end
+remotes.BuyUpgrade.OnServerEvent:Connect(ShopService.BuyUpgrade) -- (player, upgradeId)
+remotes.HatchEgg.OnServerEvent:Connect(ShopService.HatchEgg)     -- (player, eggId)
+
+---------------------------------------------------------------------------
+-- 5. AUTO ATTACK + AUTOSAVE
+---------------------------------------------------------------------------
+CombatService.StartAutoAttack()
+
+task.spawn(function()
+	while true do
+		task.wait(60)
+		DataService.SaveAll() -- autosave every minute
+	end
+end)
+
+-- When the server shuts down, save everyone first
+game:BindToClose(function()
+	DataService.SaveAll()
+end)
+]]></ProtectedString>
+</Properties>
+
+</Item>
+<Item class="Folder" referent="RBX2"><Properties>
+<string name="Name">Services</string>
+</Properties>
+<Item class="ModuleScript" referent="RBX3"><Properties>
+<string name="Name">CombatService</string>
+<ProtectedString name="Source"><![CDATA[--[[
+	CombatService  (ModuleScript in ServerScriptService > Services)
+
+	Handles fighting: each player has their own enemy.
+	The SERVER decides all damage and rewards. The client only says "I clicked".
+	That way exploiters can't give themselves a million damage.
+]]
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
+
+local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
+local Formulas = require(ReplicatedStorage.Shared.Formulas)
+local DataService = require(ServerScriptService.Services.DataService)
+
+local CombatService = {}
+
+local remotes = nil
+local enemies = {} -- enemies[player] = { Name, Health, MaxHealth, IsBoss, Dead }
+local clickLog = {} -- clickLog[player] = { Count = 0, WindowStart = 0 } (for the anti-cheat)
+
+function CombatService.Init(remoteEvents)
+	remotes = remoteEvents
+end
+
+-- sendEnemy(player): tell the client what enemy they're fighting
+local function sendEnemy(player)
+	local enemy = enemies[player]
+	local data = DataService.Get(player)
+	if not enemy or not data then return end
+
+	local chapter, chapterNumber = Formulas.GetChapter(data.Stage)
+	remotes.EnemyUpdated:FireClient(player, {
+		Name = enemy.Name,
+		Health = enemy.Health,
+		MaxHealth = enemy.MaxHealth,
+		IsBoss = enemy.IsBoss,
+		Stage = data.Stage,
+		ChapterName = chapter.Name,
+		ChapterNumber = chapterNumber,
+	})
+end
+
+-- SpawnEnemy(player): make a new enemy for the player's current stage
+function CombatService.SpawnEnemy(player)
+	local data = DataService.Get(player)
+	if not data then return end
+
+	local chapter = Formulas.GetChapter(data.Stage)
+	local isBoss = Formulas.IsBoss(data.Stage)
+	local name = isBoss and chapter.Boss or chapter.Enemies[math.random(1, #chapter.Enemies)]
+
+	enemies[player] = {
+		Name = name,
+		Health = Formulas.EnemyHealth(data.Stage),
+		MaxHealth = Formulas.EnemyHealth(data.Stage),
+		IsBoss = isBoss,
+		Dead = false,
+	}
+	sendEnemy(player)
+end
+
+-- addXP(data, amount): give XP and level up (maybe several times!)
+local function addXP(player, data, amount)
+	data.XP = data.XP + amount
+	while data.XP >= Formulas.XPNeeded(data.Level) do -- "while" keeps going as long as this is true
+		data.XP = data.XP - Formulas.XPNeeded(data.Level)
+		data.Level = data.Level + 1
+		remotes.Notify:FireClient(player, "LEVEL UP! You're level " .. data.Level, "Level")
+	end
+end
+
+-- defeat(player): enemy hit 0 health. Give rewards and move to the next stage.
+local function defeat(player)
+	local enemy = enemies[player]
+	local data = DataService.Get(player)
+	enemy.Dead = true -- stop more hits from counting
+
+	local coins = Formulas.CoinReward(data.Stage)
+	if data.Passes.DoubleCoins then coins = coins * 2 end
+
+	local gems = Formulas.GemReward(data.Stage)
+	if data.Passes.VIP then gems = math.floor(gems * 1.5) end
+	if not enemy.IsBoss and math.random(1, 10) == 1 then -- normal enemies: 1 in 10 chance of a bonus gem
+		gems = 1
+	end
+
+	data.Coins = data.Coins + coins
+	data.Gems = data.Gems + gems
+	addXP(player, data, enemy.IsBoss and 10 or 2) -- "a and b or c" = if a then b, otherwise c
+
+	remotes.EnemyDefeated:FireClient(player, { Coins = coins, Gems = gems, WasBoss = enemy.IsBoss })
+	data.Stage = data.Stage + 1
+	DataService.Push(player)
+
+	task.wait(0.6) -- give the death animation time to play
+	if player.Parent then -- still in the game?
+		CombatService.SpawnEnemy(player)
+	end
+end
+
+-- Damage(player, amount, isAuto): hurt the player's enemy
+function CombatService.Damage(player, amount, isAuto)
+	local enemy = enemies[player]
+	if not enemy or enemy.Dead then return end
+
+	enemy.Health = math.max(enemy.Health - amount, 0) -- never go below 0
+	remotes.EnemyHit:FireClient(player, {
+		Damage = amount,
+		Health = enemy.Health,
+		MaxHealth = enemy.MaxHealth,
+		IsAuto = isAuto,
+	})
+
+	if enemy.Health <= 0 then
+		task.spawn(defeat, player) -- task.spawn runs it "on the side" so the wait() inside doesn't block us
+	end
+end
+
+-- HandleAttack(player): the client clicked ATTACK. Check it's not a cheat, then deal damage.
+function CombatService.HandleAttack(player)
+	local data = DataService.Get(player)
+	if not data then return end
+
+	local log = clickLog[player]
+	local now = os.clock() -- seconds since the server started
+	if not log or now - log.WindowStart >= 1 then -- a new 1-second window
+		log = { Count = 0, WindowStart = now }
+		clickLog[player] = log
+	end
+	log.Count = log.Count + 1
+	if log.Count > GameConfig.MaxClicksPerSecond then
+		return -- clicking way too fast = ignore it
+	end
+
+	CombatService.Damage(player, Formulas.ClickDamage(data), false)
+end
+
+-- StartAutoAttack(): every second, every player's team hits their enemy automatically
+function CombatService.StartAutoAttack()
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			for _, player in ipairs(Players:GetPlayers()) do
+				local data = DataService.Get(player)
+				if data then
+					CombatService.Damage(player, Formulas.AutoDamage(data), true)
+				end
+			end
+		end
+	end)
+end
+
+-- SendState(player): re-send the current enemy (used when the client says "I'm ready")
+function CombatService.SendState(player)
+	sendEnemy(player)
+end
+
+-- Remove(player): player left, forget their enemy
+function CombatService.Remove(player)
+	enemies[player] = nil
+	clickLog[player] = nil
+end
+
+return CombatService
+]]></ProtectedString>
+</Properties>
+
+</Item>
+<Item class="ModuleScript" referent="RBX4"><Properties>
+<string name="Name">DataService</string>
+<ProtectedString name="Source"><![CDATA[--[[
+	DataService  (ModuleScript in ServerScriptService > Services)
+
+	Loads and SAVES player data using DataStoreService.
+
+	IMPORTANT for testing in Studio:
+	  1. Publish the game (File > Publish to Roblox)
+	  2. Game Settings > Security > turn ON "Enable Studio Access to API Services"
+	  Without that, the game still works, it just won't save (you'll see a warning in Output).
+
+	HOW SAVING WORKS:
+	  - Player joins  -> Load()  : read their data from the DataStore (or give starter data)
+	  - While playing -> the data lives in the "profiles" table on the server
+	  - Every 60 sec  -> SaveAll(): autosave, in case the server crashes
+	  - Player leaves -> Release(): save one last time, then forget them
+]]
+
+local DataStoreService = game:GetService("DataStoreService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
+
+local DataService = {}
+
+local STORE_NAME = "PlayerData_v1" -- change the name to wipe everyone's data (a fresh "save file")
+local profiles = {} -- profiles[player] = { Data = {...}, CanSave = true/false }
+local remotes = nil -- the RemoteEvents, handed to us in Init()
+
+-- Get the DataStore. pcall = "try it, and don't crash if it fails"
+-- (it fails in Studio when API access is off)
+local storeOk, store = pcall(function()
+	return DataStoreService:GetDataStore(STORE_NAME)
+end)
+if not storeOk then
+	warn("[DataService] DataStores are off, so progress will NOT save. Turn on Studio API access to test saving.")
+	store = nil
+end
+
+-- deepCopy(original): make a full copy of a table (and tables inside it).
+-- We need this so every player gets their OWN Upgrades/Team tables instead of sharing one.
+local function deepCopy(original)
+	local copy = {}
+	for key, value in pairs(original) do
+		if type(value) == "table" then
+			copy[key] = deepCopy(value) -- copy tables inside tables too
+		else
+			copy[key] = value
+		end
+	end
+	return copy
+end
+
+-- fillMissing(data): if we add a NEW field to StartingData later,
+-- old saves won't have it. This adds any missing fields with their starting values.
+local function fillMissing(data)
+	for key, startingValue in pairs(GameConfig.StartingData) do
+		if data[key] == nil then
+			data[key] = type(startingValue) == "table" and deepCopy(startingValue) or startingValue
+		end
+	end
+	return data
+end
+
+-- Init(remoteEvents): GameServer calls this once at startup
+function DataService.Init(remoteEvents)
+	remotes = remoteEvents
+end
+
+-- Load(player): read saved data (or make new data). Tries 3 times in case Roblox is slow.
+function DataService.Load(player)
+	local key = "Player_" .. player.UserId -- every player gets their own "slot" in the store
+	local saved = nil
+	local loadedOk = (store == nil) -- no store = nothing to load (but we also won't save)
+
+	if store then
+		for attempt = 1, 3 do
+			local ok, result = pcall(function()
+				return store:GetAsync(key) -- "Async" = this waits for Roblox's servers to answer
+			end)
+			if ok then
+				saved = result -- nil for brand-new players
+				loadedOk = true
+				break -- success, stop retrying
+			end
+			warn("[DataService] Load failed for " .. player.Name .. " (try " .. attempt .. "): " .. tostring(result))
+			task.wait(1)
+		end
+	end
+
+	if not player.Parent then
+		return nil -- they left while we were loading, nothing to do
+	end
+
+	local data = fillMissing(saved or deepCopy(GameConfig.StartingData)) -- old save, or brand-new data
+	data.Passes = {} -- gamepasses are checked fresh every join (ShopService fills these)
+
+	profiles[player] = {
+		Data = data,
+		-- If loading FAILED, never save. Otherwise we'd overwrite their real
+		-- progress with starter data!
+		CanSave = loadedOk and store ~= nil,
+	}
+	return data
+end
+
+-- Get(player): the player's live data table (nil if not loaded yet)
+function DataService.Get(player)
+	local profile = profiles[player]
+	return profile and profile.Data -- "a and b" = if a exists, give b
+end
+
+-- Push(player): send the latest data to that player's screen
+function DataService.Push(player)
+	local data = DataService.Get(player)
+	if data and remotes then
+		remotes.DataUpdated:FireClient(player, data)
+	end
+end
+
+-- Save(player): write the data to the DataStore
+function DataService.Save(player)
+	local profile = profiles[player]
+	if not profile or not profile.CanSave then
+		return
+	end
+
+	-- Only save the fields from StartingData (so "Passes" etc. never get saved)
+	local toSave = {}
+	for key in pairs(GameConfig.StartingData) do
+		toSave[key] = profile.Data[key]
+	end
+
+	local ok, err = pcall(function()
+		store:SetAsync("Player_" .. player.UserId, toSave)
+	end)
+	if not ok then
+		warn("[DataService] Save failed for " .. player.Name .. ": " .. tostring(err))
+	end
+end
+
+-- Release(player): player left. Save, then forget them.
+function DataService.Release(player)
+	DataService.Save(player)
+	profiles[player] = nil
+end
+
+-- SaveAll(): save everyone (used by autosave and when the server shuts down)
+function DataService.SaveAll()
+	for player in pairs(profiles) do
+		DataService.Save(player)
+	end
+end
+
+return DataService
+]]></ProtectedString>
+</Properties>
+
+</Item>
+<Item class="ModuleScript" referent="RBX5"><Properties>
+<string name="Name">ShopService</string>
+<ProtectedString name="Source"><![CDATA[--[[
+	ShopService  (ModuleScript in ServerScriptService > Services)
+
+	Buying upgrades, hatching eggs and checking gamepasses.
+	The server picks the random character, so players can't cheat a Mythic.
+]]
+
+local MarketplaceService = game:GetService("MarketplaceService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
+
+local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
+local Formulas = require(ReplicatedStorage.Shared.Formulas)
+local DataService = require(ServerScriptService.Services.DataService)
+
+local ShopService = {}
+
+local remotes = nil
+local lastHatch = {} -- lastHatch[player] = when they last hatched (stops spamming during the animation)
+local HATCH_COOLDOWN = 3 -- seconds
+
+function ShopService.Init(remoteEvents)
+	remotes = remoteEvents
+
+	-- When someone finishes buying a gamepass in-game, turn it on right away
+	MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, passId, purchased)
+		if not purchased then return end -- they cancelled
+		local data = DataService.Get(player)
+		if not data then return end
+		for _, pass in ipairs(GameConfig.Gamepasses) do
+			if pass.PassId == passId then
+				data.Passes[pass.Key] = true
+				remotes.Notify:FireClient(player, pass.Name .. " is now active. Thank you!", "Good")
+			end
+		end
+		DataService.Push(player)
+	end)
+end
+
+-- trySpend(player, data, currency, price): take the money if they have enough
+local function trySpend(player, data, currency, price)
+	if data[currency] >= price then -- data["Coins"] is the same as data.Coins
+		data[currency] = data[currency] - price
+		return true
+	end
+	remotes.Notify:FireClient(player, "Not enough " .. currency .. "!", "Bad")
+	return false
+end
+
+-- BuyUpgrade(player, upgradeId): the client asked to buy an upgrade
+function ShopService.BuyUpgrade(player, upgradeId)
+	local data = DataService.Get(player)
+	local upgrade = Formulas.FindById(GameConfig.Upgrades, upgradeId) -- nil if the client sent junk
+	if not data or not upgrade then return end
+
+	local timesBought = data.Upgrades[upgrade.Id] or 0
+	if trySpend(player, data, upgrade.Currency, Formulas.UpgradeCost(upgrade, timesBought)) then
+		data.Upgrades[upgrade.Id] = timesBought + 1
+		remotes.Notify:FireClient(player, upgrade.Name .. " upgraded!", "Good")
+	end
+	DataService.Push(player)
+end
+
+-- pickRandomCharacter(): weighted random pick using each character's Chance
+--   chances: 35, 25, 20, 12, 6, 2  -> running totals: 35, 60, 80, 92, 98, 100
+--   roll a number from 0-100, e.g. 73 -> first running total it fits under is 80 -> Fire Mage
+local function pickRandomCharacter()
+	local total = 0
+	for _, character in ipairs(GameConfig.Characters) do
+		total = total + character.Chance
+	end
+
+	local roll = math.random() * total -- math.random() = random decimal between 0 and 1
+	local runningTotal = 0
+	for _, character in ipairs(GameConfig.Characters) do
+		runningTotal = runningTotal + character.Chance
+		if roll <= runningTotal then
+			return character
+		end
+	end
+	return GameConfig.Characters[1] -- backup, should never happen
+end
+
+-- HatchEgg(player, eggId): the client asked to hatch an egg
+function ShopService.HatchEgg(player, eggId)
+	local data = DataService.Get(player)
+	local egg = Formulas.FindById(GameConfig.Eggs, eggId)
+	if not data or not egg then return end
+
+	local now = os.clock()
+	if lastHatch[player] and now - lastHatch[player] < HATCH_COOLDOWN then
+		return -- still hatching the last one
+	end
+	if not trySpend(player, data, egg.Currency, egg.Price) then
+		DataService.Push(player)
+		return
+	end
+	lastHatch[player] = now
+
+	local best = pickRandomCharacter()
+	for _ = 2, egg.Rolls do -- extra rolls (only the Golden Egg has more than 1)
+		local another = pickRandomCharacter()
+		if another.Power > best.Power then
+			best = another -- keep the stronger one
+		end
+	end
+
+	table.insert(data.Team, best.Id) -- add to the end of the team list
+	remotes.Hatched:FireClient(player, best.Id, egg.Id)
+	DataService.Push(player)
+end
+
+-- CheckGamepasses(player): on join, see which gamepasses they already own
+function ShopService.CheckGamepasses(player)
+	local data = DataService.Get(player)
+	if not data then return end
+	for _, pass in ipairs(GameConfig.Gamepasses) do
+		if pass.PassId ~= 0 then
+			local ok, owns = pcall(function()
+				return MarketplaceService:UserOwnsGamePassAsync(player.UserId, pass.PassId)
+			end)
+			if ok and owns then
+				data.Passes[pass.Key] = true
+			end
+		end
+	end
+end
+
+function ShopService.Remove(player)
+	lastHatch[player] = nil
+end
+
+return ShopService
+]]></ProtectedString>
+</Properties>
+
+</Item>
+</Item>
+</roblox>

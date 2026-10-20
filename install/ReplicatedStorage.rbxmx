@@ -1,0 +1,252 @@
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
+<Item class="Folder" referent="RBX1"><Properties>
+<string name="Name">Shared</string>
+</Properties>
+<Item class="ModuleScript" referent="RBX2"><Properties>
+<string name="Name">Formulas</string>
+<ProtectedString name="Source"><![CDATA[--[[
+	Formulas  (ModuleScript in ReplicatedStorage > Shared)
+
+	All the game MATH in one place. The server uses it for the real numbers;
+	the client uses it to show the same numbers on screen.
+
+	Quick math cheat sheet:
+	  a ^ b        = a to the power of b.   1.35 ^ 2 = 1.35 * 1.35 = 1.8225
+	  a % b        = the remainder after dividing.   23 % 10 = 3
+	  math.floor(x) = round DOWN to a whole number.   4.9 -> 4
+]]
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local GameConfig = require(ReplicatedStorage.Shared.GameConfig) -- borrow the settings
+
+local Formulas = {}
+
+-- FindById(list, id): search a list (like GameConfig.Eggs) for the item whose Id matches
+-- Example: Formulas.FindById(GameConfig.Eggs, "Golden") --> the Golden Egg table
+function Formulas.FindById(list, id)
+	for _, item in ipairs(list) do -- look at each item in order
+		if item.Id == id then -- found it?
+			return item -- give it back and stop searching
+		end
+	end
+	return nil -- nil means "nothing found"
+end
+
+-- GetChapter(stage): which chapter a stage is in. Stage 1-10 = chapter 1, 11-20 = chapter 2...
+-- Gives back TWO things: the chapter table and its number.
+function Formulas.GetChapter(stage)
+	local number = math.floor((stage - 1) / GameConfig.StagesPerChapter) + 1 -- stage 15 -> floor(14/10)+1 = 2
+	local lastChapter = #GameConfig.Chapters -- "#" = how many items are in a list
+	return GameConfig.Chapters[math.min(number, lastChapter)], number -- past the last chapter? keep using the last one (endless mode)
+end
+
+-- IsBoss(stage): true on stage 10, 20, 30...
+function Formulas.IsBoss(stage)
+	return stage % GameConfig.StagesPerChapter == 0
+end
+
+-- EnemyHealth(stage): every stage has 35% more health. Bosses have 5x.
+function Formulas.EnemyHealth(stage)
+	local health = math.floor(10 * 1.35 ^ (stage - 1))
+	if Formulas.IsBoss(stage) then
+		health = health * 5
+	end
+	return health
+end
+
+-- CoinReward(stage): every stage gives 25% more coins. Bosses give 10x.
+function Formulas.CoinReward(stage)
+	local coins = math.floor(5 * 1.25 ^ (stage - 1))
+	if Formulas.IsBoss(stage) then
+		coins = coins * 10
+	end
+	return coins
+end
+
+-- GemReward(stage): only bosses give gems. Later bosses give more.
+function Formulas.GemReward(stage)
+	if not Formulas.IsBoss(stage) then
+		return 0
+	end
+	return 5 + math.floor(stage / 10) * 2 -- boss 10 = 7 gems, boss 20 = 9 gems...
+end
+
+-- XPNeeded(level): XP needed to reach the next level
+function Formulas.XPNeeded(level)
+	return level * 10
+end
+
+-- UpgradeCost(upgrade, timesBought): price goes up 1.5x per purchase
+function Formulas.UpgradeCost(upgrade, timesBought)
+	return math.floor(upgrade.BaseCost * 1.5 ^ timesBought)
+end
+
+-- GetStat(data, statName): base value 1 + everything your upgrades added
+function Formulas.GetStat(data, statName)
+	local total = 1 -- everyone starts with 1
+	for _, upgrade in ipairs(GameConfig.Upgrades) do
+		if upgrade.Stat == statName then -- this upgrade boosts the stat we want
+			local timesBought = data.Upgrades[upgrade.Id] or 0 -- "or 0" = use 0 if never bought
+			total = total + upgrade.Amount * timesBought
+		end
+	end
+	return total
+end
+
+-- TeamPower(data): add up the Power of every character the player owns
+function Formulas.TeamPower(data)
+	local total = 0
+	for _, characterId in ipairs(data.Team) do
+		local character = Formulas.FindById(GameConfig.Characters, characterId)
+		if character then -- skip it if the character was removed from GameConfig
+			total = total + character.Power
+		end
+	end
+	return total
+end
+
+-- ClickDamage(data): damage from one click. +1 per player level.
+function Formulas.ClickDamage(data)
+	local damage = Formulas.GetStat(data, "ClickPower") + (data.Level - 1)
+	if data.Passes and data.Passes.DoubleDamage then -- owns the 2x Damage gamepass?
+		damage = damage * 2
+	end
+	return damage
+end
+
+-- AutoDamage(data): damage your hero + team deal every second on their own
+function Formulas.AutoDamage(data)
+	local damage = Formulas.GetStat(data, "AutoPower") + Formulas.TeamPower(data)
+	if data.Passes and data.Passes.DoubleDamage then
+		damage = damage * 2
+	end
+	return damage
+end
+
+-- FormatNumber(n): 1500 -> "1.5K", 2000000 -> "2.0M" so numbers stay short
+function Formulas.FormatNumber(n)
+	n = math.floor(n)
+	if n >= 1e9 then return string.format("%.1fB", n / 1e9) end -- 1e9 = 1,000,000,000
+	if n >= 1e6 then return string.format("%.1fM", n / 1e6) end
+	if n >= 1e3 then return string.format("%.1fK", n / 1e3) end
+	return tostring(n)
+end
+
+return Formulas
+]]></ProtectedString>
+</Properties>
+
+</Item>
+<Item class="ModuleScript" referent="RBX3"><Properties>
+<string name="Name">GameConfig</string>
+<ProtectedString name="Source"><![CDATA[--[[
+	GameConfig  (ModuleScript in ReplicatedStorage > Shared)
+
+	ALL the game's settings live here: characters, chapters, eggs, prices.
+	It's in ReplicatedStorage so BOTH the server and the client can read it.
+
+	Want a new character or chapter? Add a line here. No other file has to change.
+
+	WHAT IS A MODULESCRIPT?
+	  A script that doesn't run on its own. Other scripts "require" it to borrow
+	  what it returns:
+	      local GameConfig = require(path.To.GameConfig)
+	      print(GameConfig.StagesPerChapter) --> 10
+]]
+
+local GameConfig = {} -- an empty table that we fill below and return at the end
+
+---------------------------------------------------------------------------
+-- STORY MODE
+---------------------------------------------------------------------------
+GameConfig.StagesPerChapter = 10 -- stage 10, 20, 30... is always a boss
+
+GameConfig.Chapters = {
+	{ Name = "Slime Meadow",  Enemies = { "Green Slime", "Bouncy Blob", "Jelly Cube" },   Boss = "King Slime" },
+	{ Name = "Spooky Forest", Enemies = { "Angry Shroom", "Bat Goblin", "Ghost Fox" },    Boss = "Ancient Treant" },
+	{ Name = "Lava Volcano",  Enemies = { "Fire Imp", "Magma Crab", "Ash Golem" },        Boss = "Magma Dragon" },
+	{ Name = "Sky Castle",    Enemies = { "Cloud Knight", "Storm Hawk", "Sky Wizard" },   Boss = "Storm Titan" },
+}
+
+---------------------------------------------------------------------------
+-- CHARACTERS (hatched from eggs)
+--   Id     = a short unique name we SAVE (never change it once players have it!)
+--   Chance = how likely. These add up to 100, so they read like percentages.
+--   Power  = extra auto damage per second this character gives your team
+---------------------------------------------------------------------------
+GameConfig.Characters = {
+	{ Id = "NinjaKid",     Name = "Ninja Kid",         Rarity = "Common",    Chance = 35, Power = 1 },
+	{ Id = "SlimeTamer",   Name = "Slime Tamer",       Rarity = "Common",    Chance = 25, Power = 2 },
+	{ Id = "FireMage",     Name = "Fire Mage",         Rarity = "Rare",      Chance = 20, Power = 5 },
+	{ Id = "ThunderSam",   Name = "Thunder Samurai",   Rarity = "Epic",      Chance = 12, Power = 12 },
+	{ Id = "ShadowKing",   Name = "Shadow King",       Rarity = "Legendary", Chance = 6,  Power = 40 },
+	{ Id = "CelestialGod", Name = "Celestial Goddess", Rarity = "Mythic",    Chance = 2,  Power = 150 },
+}
+
+-- Rarity colors (only used for hatching + your team list)
+GameConfig.RarityColors = {
+	Common    = Color3.fromRGB(190, 196, 220),
+	Rare      = Color3.fromRGB(80, 170, 255),
+	Epic      = Color3.fromRGB(175, 100, 255),
+	Legendary = Color3.fromRGB(255, 200, 50),
+	Mythic    = Color3.fromRGB(255, 80, 120),
+}
+
+---------------------------------------------------------------------------
+-- EGGS
+--   Rolls = how many random picks. 2 means "roll twice, keep the best".
+---------------------------------------------------------------------------
+GameConfig.Eggs = {
+	{ Id = "Basic",  Name = "Basic Egg",  Price = 100, Currency = "Coins", Rolls = 1, Description = "A classic egg." },
+	{ Id = "Golden", Name = "Golden Egg", Price = 15,  Currency = "Gems",  Rolls = 2, Description = "Rolls twice, keeps the best!" },
+}
+
+---------------------------------------------------------------------------
+-- SHOP UPGRADES
+--   Stat   = which stat goes up ("ClickPower" or "AutoPower")
+--   Amount = how much it goes up per purchase
+--   The price goes up every time you buy one (see Formulas.UpgradeCost)
+---------------------------------------------------------------------------
+GameConfig.Upgrades = {
+	{ Id = "Sword",    Name = "Sharper Sword", Description = "+1 Click Damage",   Stat = "ClickPower", Amount = 1,  BaseCost = 25, Currency = "Coins" },
+	{ Id = "Training", Name = "Hero Training", Description = "+2 Auto Damage/s",  Stat = "AutoPower",  Amount = 2,  BaseCost = 60, Currency = "Coins" },
+	{ Id = "GemBlade", Name = "Gem Blade",     Description = "+10 Click Damage",  Stat = "ClickPower", Amount = 10, BaseCost = 10, Currency = "Gems" },
+}
+
+---------------------------------------------------------------------------
+-- GAMEPASSES
+--   PassId = your real gamepass number from the Creator Dashboard (0 = not set up yet)
+--   Key    = the name the code uses to check "does the player own this?"
+---------------------------------------------------------------------------
+GameConfig.Gamepasses = {
+	{ Key = "DoubleCoins",  PassId = 0, Name = "2x Coins",  Description = "Double every coin you earn!" },
+	{ Key = "DoubleDamage", PassId = 0, Name = "2x Damage", Description = "Hit twice as hard!" },
+	{ Key = "VIP",          PassId = 0, Name = "VIP",       Description = "+50% gems from bosses!" },
+}
+
+---------------------------------------------------------------------------
+-- NEW PLAYER DATA (what a brand-new player starts with)
+-- Only the fields listed here get SAVED.
+---------------------------------------------------------------------------
+GameConfig.StartingData = {
+	Coins = 0,
+	Gems = 0,
+	Level = 1,
+	XP = 0,
+	Stage = 1,
+	Upgrades = {}, -- e.g. { Sword = 3 } = bought Sharper Sword 3 times
+	Team = {},     -- list of character Ids, e.g. { "NinjaKid", "FireMage" }
+}
+
+---------------------------------------------------------------------------
+-- ANTI-CHEAT
+---------------------------------------------------------------------------
+GameConfig.MaxClicksPerSecond = 12 -- ignore clicks faster than this (stops auto-clicker exploits)
+
+return GameConfig -- hand the finished table to whoever "requires" this module
+]]></ProtectedString>
+</Properties>
+
+</Item>
+</Item>
+</roblox>
