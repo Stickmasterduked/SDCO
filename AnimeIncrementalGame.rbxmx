@@ -1,0 +1,1036 @@
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
+<Item class="LocalScript" referent="RBX0">
+<Properties>
+<string name="Name">AnimeIncrementalGame</string>
+<bool name="Disabled">false</bool>
+<ProtectedString name="Source"><![CDATA[--[[
+	=====================================================================
+	 ANIME INCREMENTAL GAME  (a LocalScript that builds the WHOLE game UI)
+	=====================================================================
+	 WHERE THIS LIVES:  StarterPlayer > StarterPlayerScripts > AnimeIncrementalGame
+	 WHAT IT DOES:      Builds every button, label and animation with code.
+	                    No images yet: every ImageLabel is blank so you can
+	                    paste your own image ids in later.
+
+	 HOW TO READ THIS FILE (top to bottom):
+	   1. SERVICES      -> tools Roblox gives us (tweening, players, etc.)
+	   2. SETTINGS      -> numbers you can change (prices, chances, names)
+	   3. PLAYER DATA   -> what the player owns (coins, gems, level...)
+	   4. HELPERS       -> small reusable functions (make a button, animate)
+	   5. BUILD THE UI  -> actually creates the screen
+	   6. GAME LOGIC    -> attacking, rewards, shop, eggs
+	   7. START         -> turns everything on
+
+	 TIP: "--" starts a comment. Roblox ignores comments, they are only for you.
+	=====================================================================
+]]
+
+---------------------------------------------------------------------------
+-- 1. SERVICES
+-- A "service" is a built-in Roblox toolbox. We grab them once and keep them
+-- in variables so we can use them anywhere below.
+---------------------------------------------------------------------------
+local Players = game:GetService("Players")                     -- gives us the player who is playing
+local TweenService = game:GetService("TweenService")           -- smoothly animates properties (size, color, position)
+local RunService = game:GetService("RunService")               -- lets us run code every single frame
+local MarketplaceService = game:GetService("MarketplaceService") -- handles Robux purchases (gamepasses)
+
+local player = Players.LocalPlayer                 -- "LocalPlayer" = the person on THIS computer
+local playerGui = player:WaitForChild("PlayerGui") -- the folder where on-screen UI must go (we wait until it exists)
+
+---------------------------------------------------------------------------
+-- 2. SETTINGS  (change these freely!)
+---------------------------------------------------------------------------
+
+-- FONTS: cartoony built-in Roblox fonts
+local TITLE_FONT = Enum.Font.LuckiestGuy -- big chunky comic font for titles
+local TEXT_FONT = Enum.Font.FredokaOne   -- round bubbly font for normal text
+
+-- COLORS: Color3.fromRGB(red, green, blue) each number goes from 0 to 255
+local COLORS = {
+	Outline = Color3.fromRGB(25, 15, 45),    -- dark purple-black, used for the thick cartoon outlines
+	White = Color3.fromRGB(255, 255, 255),   -- plain white
+	Coin = Color3.fromRGB(255, 205, 40),     -- gold yellow for coins
+	Gem = Color3.fromRGB(80, 220, 255),      -- light blue for gems
+	Green = Color3.fromRGB(90, 230, 90),     -- happy green (buttons, XP)
+	Red = Color3.fromRGB(255, 70, 90),       -- red (enemy health)
+	Pink = Color3.fromRGB(255, 100, 200),    -- hot pink
+	Purple = Color3.fromRGB(150, 80, 255),   -- bright purple
+	Orange = Color3.fromRGB(255, 150, 40),   -- orange
+	Panel = Color3.fromRGB(255, 245, 225),   -- creamy paper color for windows
+}
+
+-- GAMEPASSES: put your real gamepass id numbers here (0 = not set up yet)
+local GAMEPASSES = {
+	{ Name = "2x Coins", Description = "Double every coin you earn!", Id = 0, Color = COLORS.Coin },  -- one gamepass entry
+	{ Name = "2x Damage", Description = "Hit twice as hard!", Id = 0, Color = COLORS.Red },           -- another gamepass entry
+	{ Name = "VIP", Description = "+50% gems & a cool title!", Id = 0, Color = COLORS.Purple },       -- another gamepass entry
+}
+
+-- STORY MODE: each chapter has 10 stages. Stage 10 of every chapter is a BOSS.
+local STAGES_PER_CHAPTER = 10 -- how many stages fit in one chapter
+local CHAPTERS = {
+	{ Name = "Slime Meadow", Enemies = { "Green Slime", "Bouncy Blob", "Jelly Cube" }, Boss = "KING SLIME", Color = Color3.fromRGB(110, 220, 110) },
+	{ Name = "Spooky Forest", Enemies = { "Angry Shroom", "Bat Goblin", "Ghost Fox" }, Boss = "ANCIENT TREANT", Color = Color3.fromRGB(140, 90, 200) },
+	{ Name = "Lava Volcano", Enemies = { "Fire Imp", "Magma Crab", "Ash Golem" }, Boss = "MAGMA DRAGON", Color = Color3.fromRGB(255, 110, 60) },
+	{ Name = "Sky Castle", Enemies = { "Cloud Knight", "Storm Hawk", "Sky Wizard" }, Boss = "STORM TITAN", Color = Color3.fromRGB(90, 180, 255) },
+}
+
+-- RARITIES: each rarity gets its own color
+local RARITY_COLORS = {
+	Common = Color3.fromRGB(200, 200, 200),    -- grey
+	Rare = Color3.fromRGB(70, 160, 255),       -- blue
+	Epic = Color3.fromRGB(180, 80, 255),       -- purple
+	Legendary = Color3.fromRGB(255, 190, 30),  -- gold
+	Mythic = Color3.fromRGB(255, 60, 120),     -- hot pink-red
+}
+
+-- CHARACTERS you can hatch from eggs.
+-- Chance = how likely (all chances added together = 100, so it reads like %)
+-- Power  = how much extra damage per second this character adds to your team
+local CHARACTERS = {
+	{ Name = "Ninja Kid", Rarity = "Common", Chance = 35, Power = 1 },
+	{ Name = "Slime Tamer", Rarity = "Common", Chance = 25, Power = 2 },
+	{ Name = "Fire Mage", Rarity = "Rare", Chance = 20, Power = 5 },
+	{ Name = "Thunder Samurai", Rarity = "Epic", Chance = 12, Power = 12 },
+	{ Name = "Shadow King", Rarity = "Legendary", Chance = 6, Power = 40 },
+	{ Name = "Celestial Goddess", Rarity = "Mythic", Chance = 2, Power = 150 },
+}
+
+-- EGGS you can buy
+local EGGS = {
+	{ Name = "Basic Egg", Price = 100, Currency = "Coins", Rolls = 1, Color = Color3.fromRGB(255, 240, 200) }, -- costs coins, 1 roll
+	{ Name = "Golden Egg", Price = 15, Currency = "Gems", Rolls = 2, Color = COLORS.Coin },                   -- costs gems, rolls TWICE and keeps the best
+}
+
+-- UPGRADES in the shop. Cost goes up by 1.5x every time you buy one.
+local UPGRADES = {
+	{ Name = "Sharper Sword", Description = "+1 Click Damage", Stat = "ClickPower", Amount = 1, BaseCost = 25, Currency = "Coins", Bought = 0 },
+	{ Name = "Hero Training", Description = "+2 Auto Damage /sec", Stat = "AutoPower", Amount = 2, BaseCost = 60, Currency = "Coins", Bought = 0 },
+	{ Name = "Gem Blade", Description = "+10 Click Damage", Stat = "ClickPower", Amount = 10, BaseCost = 10, Currency = "Gems", Bought = 0 },
+}
+
+---------------------------------------------------------------------------
+-- 3. PLAYER DATA  (everything the player owns, kept in one table)
+-- A "table" is like a box with labeled slots: Data.Coins, Data.Gems, ...
+-- NOTE: this does NOT save yet. When you leave, it resets. (Saving needs a
+-- server Script + DataStoreService, a good next step!)
+---------------------------------------------------------------------------
+local Data = {
+	Coins = 0,        -- money from beating enemies
+	Gems = 0,         -- rare money from bosses
+	Level = 1,        -- player level
+	XP = 0,           -- experience toward the next level
+	Stage = 1,        -- which story stage you are on
+	ClickPower = 1,   -- damage per click
+	AutoPower = 1,    -- damage your hero does by itself every second
+	Team = {},        -- list of characters you hatched
+	OwnsPass = {},    -- which gamepasses you own, e.g. OwnsPass["2x Coins"] = true
+}
+
+-- The current enemy's health (changes during the fight)
+local enemyHP = 10      -- health right now
+local enemyMaxHP = 10   -- health when it was full
+
+---------------------------------------------------------------------------
+-- 4. HELPERS  (small reusable functions)
+--
+-- WHAT IS A FUNCTION?  A recipe you write once and use many times.
+--   local function Add(a, b)   <- "a" and "b" are PARAMETERS: blank slots
+--       return a + b              you fill in when you USE the function.
+--   end
+--   Add(2, 3)  --> gives back 5   (here a = 2 and b = 3)
+-- The NAME of a parameter is just a nickname. You know what it does by
+-- reading how it is used inside the function (and the comment above it!).
+---------------------------------------------------------------------------
+
+-- make(className, properties, parent)
+--   className  = what kind of thing to create, e.g. "Frame" or "TextButton"
+--   properties = a table of settings, e.g. { Size = ..., Text = "Hi" }
+--   parent     = where to put it (what it lives inside)
+-- Example: make("TextLabel", { Text = "Hello" }, someFrame)
+local function make(className, properties, parent)
+	local object = Instance.new(className)      -- create the new object
+	for propertyName, value in pairs(properties) do -- go through every setting in the table one by one...
+		object[propertyName] = value            -- ...and apply it (same as writing object.Text = "Hello")
+	end
+	object.Parent = parent                      -- put it inside its parent LAST (faster + avoids flicker)
+	return object                               -- hand the new object back so we can keep using it
+end
+
+-- addCorner(object, radius): makes the corners round. radius = how round (in pixels)
+local function addCorner(object, radius)
+	return make("UICorner", { CornerRadius = UDim.new(0, radius or 16) }, object) -- "radius or 16" = use 16 if no radius was given
+end
+
+-- addOutline(object, thickness): thick dark cartoon border around a box
+local function addOutline(object, thickness)
+	return make("UIStroke", {
+		Thickness = thickness or 4,                          -- how thick the line is
+		Color = COLORS.Outline,                              -- dark outline color
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,       -- "Border" = outline the BOX, not the text
+		LineJoinMode = Enum.LineJoinMode.Round,              -- rounded corners on the outline
+	}, object)
+end
+
+-- addTextOutline(object, thickness): thick dark outline around TEXT letters
+local function addTextOutline(object, thickness)
+	return make("UIStroke", {
+		Thickness = thickness or 3,                          -- outline thickness
+		Color = COLORS.Outline,                              -- dark color
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual,   -- "Contextual" = outline the TEXT
+	}, object)
+end
+
+-- addGradient(object, topColor, bottomColor): smooth color fade from top to bottom
+local function addGradient(object, topColor, bottomColor)
+	return make("UIGradient", {
+		Color = ColorSequence.new(topColor, bottomColor), -- fade from the first color to the second
+		Rotation = 90,                                     -- 90 degrees = top to bottom
+	}, object)
+end
+
+-- getScale(object): every animated thing gets a "UIScale" so we can grow/shrink it
+local function getScale(object)
+	local scale = object:FindFirstChildOfClass("UIScale") -- look for one that already exists
+	if not scale then                                     -- if there is none yet...
+		scale = make("UIScale", { Scale = 1 }, object)    -- ...make one (1 = normal size)
+	end
+	return scale                                          -- give it back
+end
+
+-- tween(object, seconds, goals, style, direction): smoothly animate properties
+-- Example: tween(myFrame, 0.5, { BackgroundTransparency = 1 })  -> fades out over half a second
+local function tween(object, seconds, goals, style, direction)
+	local info = TweenInfo.new(                         -- TweenInfo = HOW the animation moves
+		seconds,                                        -- how long it takes
+		style or Enum.EasingStyle.Quad,                 -- the motion shape (Back/Elastic/Bounce feel cartoony!)
+		direction or Enum.EasingDirection.Out           -- slow down at the end
+	)
+	local animation = TweenService:Create(object, info, goals) -- build the animation
+	animation:Play()                                    -- start it
+	return animation                                    -- give it back in case we want to wait for it
+end
+
+-- pop(object): quick cartoon "boing!" - grows big then bounces back
+local function pop(object, bigness)
+	local scale = getScale(object)                                        -- get the UIScale
+	scale.Scale = bigness or 1.25                                         -- instantly make it bigger
+	tween(scale, 0.4, { Scale = 1 }, Enum.EasingStyle.Elastic)            -- wobble back to normal size
+end
+
+-- shake(object): wiggle something left and right (used when the enemy gets hit)
+local function shake(object)
+	local startRotation = 0                         -- normal straight rotation
+	for i = 1, 4 do                                 -- repeat 4 times (i counts 1, 2, 3, 4)
+		local angle = (i % 2 == 0) and 6 or -6      -- even numbers tilt right (+6), odd tilt left (-6)
+		object.Rotation = angle                     -- tilt it
+		task.wait(0.03)                             -- wait a tiny moment
+	end
+	object.Rotation = startRotation                 -- straighten it back up
+end
+
+-- formatNumber(n): turns 1500 into "1.5K", 2000000 into "2M" so numbers stay short
+local function formatNumber(n)
+	n = math.floor(n)                                             -- remove decimals
+	if n >= 1e9 then return string.format("%.1fB", n / 1e9) end   -- billions  (1e9 = 1,000,000,000)
+	if n >= 1e6 then return string.format("%.1fM", n / 1e6) end   -- millions
+	if n >= 1e3 then return string.format("%.1fK", n / 1e3) end   -- thousands
+	return tostring(n)                                            -- small numbers stay as they are
+end
+
+-- makeBouncy(button): makes a button squish and grow when you hover/click it
+local function makeBouncy(button)
+	local scale = getScale(button)                                                    -- the UIScale we animate
+	button.MouseEnter:Connect(function()                                              -- when the mouse moves ONTO the button...
+		tween(scale, 0.2, { Scale = 1.08 }, Enum.EasingStyle.Back)                    -- ...grow a bit
+	end)
+	button.MouseLeave:Connect(function()                                              -- when the mouse moves OFF...
+		tween(scale, 0.2, { Scale = 1 }, Enum.EasingStyle.Back)                       -- ...go back to normal
+	end)
+	button.MouseButton1Down:Connect(function()                                        -- when you PRESS down...
+		tween(scale, 0.08, { Scale = 0.88 })                                          -- ...squish small
+	end)
+	button.MouseButton1Up:Connect(function()                                          -- when you LET GO...
+		tween(scale, 0.35, { Scale = 1.08 }, Enum.EasingStyle.Elastic)                -- ...spring back with a wobble
+	end)
+end
+
+-- makeButton(text, color, size, position, parent): a chunky cartoon button
+local function makeButton(text, color, size, position, parent)
+	local button = make("TextButton", {
+		Text = text,                                -- words on the button
+		Font = TITLE_FONT,                          -- comic font
+		TextScaled = true,                          -- text auto-sizes to fit
+		TextColor3 = COLORS.White,                  -- white letters
+		BackgroundColor3 = COLORS.White,            -- white so the gradient below shows its true colors
+		Size = size,                                -- how big
+		Position = position,                        -- where
+		AnchorPoint = Vector2.new(0.5, 0.5),        -- position is measured from the CENTER of the button
+		AutoButtonColor = false,                    -- turn off Roblox's boring grey hover effect
+	}, parent)
+	addCorner(button, 14)                           -- round corners
+	addOutline(button, 4)                           -- thick outline around the box
+	addTextOutline(button, 3)                       -- thick outline around the letters
+	addGradient(button, color, color:Lerp(COLORS.Outline, 0.35)) -- top = color, bottom = slightly darker (Lerp = mix two colors)
+	make("UIPadding", {                             -- keep the text away from the edges
+		PaddingTop = UDim.new(0.15, 0), PaddingBottom = UDim.new(0.15, 0),
+		PaddingLeft = UDim.new(0.08, 0), PaddingRight = UDim.new(0.08, 0),
+	}, button)
+	makeBouncy(button)                              -- add the squishy animation
+	return button                                   -- give the button back
+end
+
+-- makeLabel(text, size, position, parent, color): outlined cartoon text
+local function makeLabel(text, size, position, parent, color)
+	local label = make("TextLabel", {
+		Text = text,                                -- the words
+		Font = TITLE_FONT,                          -- comic font
+		TextScaled = true,                          -- auto size
+		TextColor3 = color or COLORS.White,         -- color (white if none given)
+		BackgroundTransparency = 1,                 -- no background box, just text
+		Size = size,                                -- how big
+		Position = position,                        -- where
+		AnchorPoint = Vector2.new(0.5, 0.5),        -- measured from the center
+	}, parent)
+	addTextOutline(label, 3)                        -- outline the letters
+	return label                                    -- give it back
+end
+
+-- makeBar(size, position, parent, fillColor): a health/xp bar. Returns (background, fill, text)
+local function makeBar(size, position, parent, fillColor)
+	local back = make("Frame", {
+		Size = size, Position = position,                        -- size and place
+		AnchorPoint = Vector2.new(0.5, 0.5),                     -- measured from center
+		BackgroundColor3 = Color3.fromRGB(50, 35, 70),           -- dark empty part of the bar
+	}, parent)
+	addCorner(back, 10)                                          -- round
+	addOutline(back, 3)                                          -- outline
+	local fill = make("Frame", {
+		Size = UDim2.new(1, 0, 1, 0),                            -- starts full (1 = 100% wide)
+		BackgroundColor3 = COLORS.White,                         -- white so gradient colors show
+	}, back)
+	addCorner(fill, 10)                                          -- round
+	addGradient(fill, fillColor, fillColor:Lerp(COLORS.Outline, 0.3)) -- shiny gradient
+	local text = makeLabel("", UDim2.new(1, 0, 0.8, 0), UDim2.new(0.5, 0, 0.5, 0), back) -- text on top of the bar
+	text.ZIndex = 3                                              -- ZIndex = draw order, higher = on top
+	return back, fill, text                                      -- a function can give back MORE than one thing!
+end
+
+---------------------------------------------------------------------------
+-- 5. BUILD THE UI
+---------------------------------------------------------------------------
+
+-- ScreenGui = the "canvas" that holds all 2D UI on the screen
+local gui = make("ScreenGui", {
+	Name = "AnimeIncrementalGui",   -- name you will see in the Explorer while playing
+	ResetOnSpawn = false,           -- keep the UI when your character respawns
+	IgnoreGuiInset = true,          -- cover the whole screen (including the top bar area)
+	ZIndexBehavior = Enum.ZIndexBehavior.Sibling, -- simpler draw ordering
+}, playerGui)
+
+-- BACKGROUND: big colorful gradient that slowly spins
+local background = make("Frame", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = COLORS.White }, gui) -- fills the screen
+local backgroundGradient = make("UIGradient", {
+	Color = ColorSequence.new({                                         -- a gradient with 3 color stops
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(120, 70, 255)),     -- 0%  = purple
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 90, 190)),   -- 50% = pink
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 180, 60)),     -- 100% = orange
+	}),
+}, background)
+
+-- Floating bubbles in the background (pure decoration, makes it feel alive)
+for i = 1, 14 do                                                  -- make 14 bubbles (i goes 1, 2, 3 ... 14)
+	local bubbleSize = math.random(30, 110)                       -- random size in pixels
+	local bubble = make("Frame", {
+		Size = UDim2.new(0, bubbleSize, 0, bubbleSize),           -- square (corner makes it a circle)
+		Position = UDim2.new(math.random(), 0, 1.2, 0),           -- random left/right spot, start BELOW the screen
+		BackgroundColor3 = COLORS.White,                          -- white
+		BackgroundTransparency = 0.8,                             -- mostly see-through
+	}, background)
+	addCorner(bubble, 999)                                        -- huge radius = perfect circle
+	local loop = TweenInfo.new(math.random(8, 16), Enum.EasingStyle.Linear, Enum.EasingDirection.In, -1) -- -1 = repeat forever
+	task.delay(math.random() * 8, function()                      -- start each bubble at a random time so they spread out
+		TweenService:Create(bubble, loop, { Position = UDim2.new(bubble.Position.X.Scale, 0, -0.2, 0) }):Play() -- float to the top
+	end)
+end
+
+-- TOP BAR: coins, gems, level
+local topBar = make("Frame", {
+	Size = UDim2.new(0.7, 0, 0.09, 0),           -- 70% of screen wide, 9% tall
+	Position = UDim2.new(0.5, 0, 0.02, 0),       -- centered, near the top
+	AnchorPoint = Vector2.new(0.5, 0),           -- measured from the top-middle
+	BackgroundTransparency = 1,                  -- invisible holder
+}, gui)
+make("UIListLayout", {                           -- auto-arranges children side by side
+	FillDirection = Enum.FillDirection.Horizontal,
+	HorizontalAlignment = Enum.HorizontalAlignment.Center,
+	Padding = UDim.new(0.02, 0),                 -- gap between pills
+}, topBar)
+
+-- makePill(icon, color): one rounded stat box like "COINS 120". Returns the text label inside.
+local function makePill(icon, color)
+	local pill = make("Frame", { Size = UDim2.new(0.3, 0, 1, 0), BackgroundColor3 = COLORS.White }, topBar) -- the box
+	addCorner(pill, 999)                                                  -- pill shape
+	addOutline(pill, 4)                                                   -- outline
+	addGradient(pill, color, color:Lerp(COLORS.Outline, 0.4))             -- gradient
+	local iconBox = make("TextLabel", {                                   -- the round "icon" circle on the left
+		Size = UDim2.new(1, 0, 1.3, 0), SizeConstraint = Enum.SizeConstraint.RelativeYY, -- RelativeYY = keep it a square based on height
+		Position = UDim2.new(0, -10, 0.5, 0), AnchorPoint = Vector2.new(0, 0.5),
+		BackgroundColor3 = color, Text = icon, Font = TITLE_FONT, TextScaled = true, TextColor3 = COLORS.White,
+	}, pill)
+	addCorner(iconBox, 999)                                               -- circle
+	addOutline(iconBox, 4)                                                -- outline
+	addTextOutline(iconBox, 2)                                            -- letter outline
+	local text = makeLabel("0", UDim2.new(0.65, 0, 0.75, 0), UDim2.new(0.6, 0, 0.5, 0), pill) -- the number
+	return text                                                           -- give back the label so we can change its text later
+end
+
+local coinsText = makePill("$", COLORS.Coin)   -- coins pill
+local gemsText = makePill("G", COLORS.Gem)     -- gems pill
+local levelText = makePill("LV", COLORS.Green) -- level pill
+
+-- XP bar right under the top bar
+local _, xpFill, xpText = makeBar(UDim2.new(0.4, 0, 0.035, 0), UDim2.new(0.5, 0, 0.14, 0), gui, COLORS.Green) -- "_" = we don't need the first returned thing
+
+-- STAGE BANNER: shows chapter + stage
+local stageBanner = make("Frame", {
+	Size = UDim2.new(0.42, 0, 0.08, 0), Position = UDim2.new(0.5, 0, 0.22, 0), -- size / place
+	AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = COLORS.White,
+	Rotation = -2,                                                            -- slightly tilted = more cartoony
+}, gui)
+addCorner(stageBanner, 18)                                                    -- round
+addOutline(stageBanner, 5)                                                    -- outline
+local stageGradient = addGradient(stageBanner, COLORS.Orange, COLORS.Pink)    -- gradient (we recolor it per chapter)
+local stageText = makeLabel("STAGE 1", UDim2.new(0.92, 0, 0.8, 0), UDim2.new(0.5, 0, 0.5, 0), stageBanner) -- the words
+
+-- makeFighterCard(side, title, color): a big card for a fighter (hero or enemy).
+--   side  = 0.2 for the left side of the screen, 0.8 for the right side
+-- Returns a table with all the important parts so we can change them later.
+local function makeFighterCard(side, title, color)
+	local card = make("Frame", {
+		Size = UDim2.new(0.24, 0, 0.5, 0), Position = UDim2.new(side, 0, 0.56, 0), -- size / place
+		AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = COLORS.White,
+	}, gui)
+	addCorner(card, 24)                                                      -- round
+	addOutline(card, 6)                                                      -- extra-thick outline
+	local gradient = addGradient(card, color, color:Lerp(COLORS.Outline, 0.45)) -- gradient
+
+	local nameText = makeLabel(title, UDim2.new(0.9, 0, 0.12, 0), UDim2.new(0.5, 0, 0.09, 0), card) -- name at the top
+
+	-- The picture spot. BLANK for now: put "rbxassetid://YOUR_ID" in Image later!
+	local picture = make("ImageLabel", {
+		Image = "",                                            -- <-- paste your image id here later
+		Size = UDim2.new(0.75, 0, 0.6, 0), Position = UDim2.new(0.5, 0, 0.48, 0),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		BackgroundColor3 = COLORS.White, BackgroundTransparency = 0.6, -- see-through white "empty slot" look
+		ScaleType = Enum.ScaleType.Fit,                        -- images keep their shape
+	}, card)
+	addCorner(picture, 20)                                     -- round
+	make("UIStroke", { Thickness = 3, Color = COLORS.White, Transparency = 0.3 }, picture) -- soft white border
+
+	-- White flash overlay (we flash it when this fighter gets hit)
+	local flash = make("Frame", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = COLORS.White, BackgroundTransparency = 1, ZIndex = 5 }, picture)
+	addCorner(flash, 20)                                       -- round like the picture
+
+	-- Idle "breathing" bob: the picture gently floats up and down forever
+	local bob = TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true) -- -1 = forever, true = go back and forth
+	TweenService:Create(picture, bob, { Position = UDim2.new(0.5, 0, 0.45, 0) }):Play()
+
+	local back, fill, barText = makeBar(UDim2.new(0.85, 0, 0.09, 0), UDim2.new(0.5, 0, 0.88, 0), card, COLORS.Red) -- health / stat bar
+
+	-- Put all the parts in one table so we can use card.Picture, card.Name, etc.
+	return { Frame = card, Gradient = gradient, Name = nameText, Picture = picture, Flash = flash, BarBack = back, BarFill = fill, BarText = barText }
+end
+
+local hero = makeFighterCard(0.2, player.DisplayName, COLORS.Green) -- LEFT side: your character (uses your Roblox name)
+hero.BarFill.Size = UDim2.new(1, 0, 1, 0)                           -- hero bar is always full
+hero.BarFill:FindFirstChildOfClass("UIGradient").Color = ColorSequence.new(COLORS.Gem, COLORS.Purple) -- recolor hero's bar blue/purple
+local enemy = makeFighterCard(0.8, "SLIME", COLORS.Red)             -- RIGHT side: the enemy
+
+-- Big "VS" in the middle that pulses forever
+local vsText = makeLabel("VS", UDim2.new(0.14, 0, 0.14, 0), UDim2.new(0.5, 0, 0.47, 0), gui, COLORS.Coin)
+vsText.Rotation = -8                                                -- tilted
+local vsPulse = TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true) -- forever, back and forth
+TweenService:Create(getScale(vsText), vsPulse, { Scale = 1.2 }):Play()
+
+-- Team power text under VS
+local teamText = makeLabel("TEAM POWER: 0", UDim2.new(0.25, 0, 0.045, 0), UDim2.new(0.5, 0, 0.6, 0), gui)
+
+-- BIG ATTACK BUTTON in the middle-bottom with a spinning rainbow
+local attackButton = makeButton("ATTACK!", COLORS.Red, UDim2.new(0.22, 0, 0.12, 0), UDim2.new(0.5, 0, 0.75, 0), gui)
+attackButton:FindFirstChildOfClass("UIGradient"):Destroy()          -- remove the normal gradient...
+local rainbow = make("UIGradient", {                                -- ...and give it a rainbow instead
+	Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 70, 90)),
+		ColorSequenceKeypoint.new(0.33, Color3.fromRGB(255, 190, 40)),
+		ColorSequenceKeypoint.new(0.66, Color3.fromRGB(255, 80, 200)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 70, 90)),
+	}),
+}, attackButton)
+
+-- BOTTOM MENU buttons
+local shopButton = makeButton("SHOP", COLORS.Coin, UDim2.new(0.13, 0, 0.09, 0), UDim2.new(0.3, 0, 0.92, 0), gui)
+local eggsButton = makeButton("EGGS", COLORS.Pink, UDim2.new(0.13, 0, 0.09, 0), UDim2.new(0.5, 0, 0.92, 0), gui)
+local storyButton = makeButton("STORY", COLORS.Purple, UDim2.new(0.13, 0, 0.09, 0), UDim2.new(0.7, 0, 0.92, 0), gui)
+
+-- TOAST: a little message that slides in from the top ("Not enough coins!")
+local toast = makeLabel("", UDim2.new(0.5, 0, 0.06, 0), UDim2.new(0.5, 0, -0.1, 0), gui, COLORS.Coin)
+toast.ZIndex = 50                                                   -- always on top
+local function showToast(message, color)
+	toast.Text = message                                            -- set the message
+	toast.TextColor3 = color or COLORS.Coin                         -- set the color
+	toast.Position = UDim2.new(0.5, 0, -0.1, 0)                     -- start above the screen
+	tween(toast, 0.4, { Position = UDim2.new(0.5, 0, 0.3, 0) }, Enum.EasingStyle.Back) -- drop in
+	task.delay(1.6, function()                                      -- after 1.6 seconds...
+		tween(toast, 0.3, { Position = UDim2.new(0.5, 0, -0.1, 0) }, Enum.EasingStyle.Back, Enum.EasingDirection.In) -- ...fly back out
+	end)
+end
+
+-- POPUP WINDOWS (Shop, Eggs, Story all use this same recipe)
+-- makePanel(title, color): returns (panel, content) - content is a scrolling list to put items in
+local openPanelFrame = nil                                          -- remembers which window is open (nil = none)
+
+local function makePanel(title, color)
+	local panel = make("Frame", {
+		Size = UDim2.new(0.55, 0, 0.65, 0), Position = UDim2.new(0.5, 0, 0.5, 0), -- big centered window
+		AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = COLORS.Panel,
+		Visible = false, ZIndex = 20,                                             -- hidden at the start
+	}, gui)
+	addCorner(panel, 26)                                            -- round
+	addOutline(panel, 7)                                            -- extra thick outline
+	local header = make("Frame", {                                  -- colored header strip
+		Size = UDim2.new(1, 0, 0.16, 0), BackgroundColor3 = COLORS.White, ZIndex = 21,
+	}, panel)
+	addCorner(header, 26)                                           -- round
+	addOutline(header, 5)                                           -- outline
+	addGradient(header, color, color:Lerp(COLORS.Outline, 0.4))     -- gradient
+	local titleText = makeLabel(title, UDim2.new(0.6, 0, 0.8, 0), UDim2.new(0.5, 0, 0.5, 0), header) -- title
+	titleText.ZIndex = 22
+
+	local closeButton = makeButton("X", COLORS.Red, UDim2.new(0.09, 0, 0.13, 0), UDim2.new(0.97, 0, 0.03, 0), panel) -- close button in the corner
+	closeButton.SizeConstraint = Enum.SizeConstraint.RelativeYY    -- keep it square
+	closeButton.Size = UDim2.new(0.13, 0, 0.13, 0)
+	closeButton.ZIndex = 25
+	closeButton.MouseButton1Click:Connect(function()                -- when X is clicked...
+		tween(getScale(panel), 0.2, { Scale = 0 }, Enum.EasingStyle.Back, Enum.EasingDirection.In) -- ...shrink away
+		task.delay(0.2, function() panel.Visible = false end)       -- ...then hide it
+		openPanelFrame = nil                                        -- no window open now
+	end)
+
+	local content = make("ScrollingFrame", {                        -- scrolling list area
+		Size = UDim2.new(0.94, 0, 0.78, 0), Position = UDim2.new(0.5, 0, 0.58, 0),
+		AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1, ZIndex = 21,
+		ScrollBarThickness = 10, ScrollBarImageColor3 = COLORS.Outline,
+		CanvasSize = UDim2.new(0, 0, 0, 0),                         -- starts empty...
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,                 -- ...and grows when we add items
+	}, panel)
+	return panel, content                                           -- give back both
+end
+
+-- openPanel(panel): show a window with a bouncy "pop open" animation
+local function openPanel(panel)
+	if openPanelFrame and openPanelFrame ~= panel then              -- if a DIFFERENT window is already open...
+		openPanelFrame.Visible = false                              -- ...hide it first
+	end
+	openPanelFrame = panel                                          -- remember this one is open
+	panel.Visible = true                                            -- show it
+	local scale = getScale(panel)                                   -- its UIScale
+	scale.Scale = 0                                                 -- start tiny
+	tween(scale, 0.45, { Scale = 1 }, Enum.EasingStyle.Back)        -- pop open with an overshoot
+end
+
+-- makeItemRow(parent, title, subtitle, color, buttonText): one row in a list. Returns (row, buyButton)
+local function makeItemRow(parent, title, subtitle, color, buttonText)
+	local row = make("Frame", { Size = UDim2.new(1, -16, 0, 90), BackgroundColor3 = COLORS.White, ZIndex = 22 }, parent) -- 90 pixels tall
+	addCorner(row, 18)                                              -- round
+	addOutline(row, 4)                                              -- outline
+	addGradient(row, color, color:Lerp(COLORS.Outline, 0.3))        -- gradient
+	local icon = make("ImageLabel", {                               -- blank icon spot (put an image later)
+		Image = "", Size = UDim2.new(0, 70, 0, 70), Position = UDim2.new(0, 10, 0.5, 0), AnchorPoint = Vector2.new(0, 0.5),
+		BackgroundColor3 = COLORS.White, BackgroundTransparency = 0.5, ZIndex = 23,
+	}, row)
+	addCorner(icon, 14)                                             -- round
+	local titleLabel = makeLabel(title, UDim2.new(0.45, 0, 0.42, 0), UDim2.new(0, 95, 0.3, 0), row) -- title
+	titleLabel.AnchorPoint = Vector2.new(0, 0.5)                    -- measure from the left edge
+	titleLabel.TextXAlignment = Enum.TextXAlignment.Left            -- text hugs the left
+	titleLabel.ZIndex = 23
+	local subLabel = makeLabel(subtitle, UDim2.new(0.45, 0, 0.3, 0), UDim2.new(0, 95, 0.72, 0), row) -- smaller description
+	subLabel.Font = TEXT_FONT
+	subLabel.AnchorPoint = Vector2.new(0, 0.5)
+	subLabel.TextXAlignment = Enum.TextXAlignment.Left
+	subLabel.ZIndex = 23
+	local buyButton = makeButton(buttonText, COLORS.Green, UDim2.new(0.28, 0, 0.7, 0), UDim2.new(0.84, 0, 0.5, 0), row) -- buy button
+	buyButton.ZIndex = 24
+	return row, buyButton, subLabel                                 -- give back the parts
+end
+
+-- Build the three windows
+local shopPanel, shopList = makePanel("SHOP", COLORS.Coin)
+local eggPanel, eggList = makePanel("EGGS", COLORS.Pink)
+local storyPanel, storyList = makePanel("STORY MODE", COLORS.Purple)
+for _, list in ipairs({ shopList, eggList, storyList }) do          -- for each of the 3 lists...
+	make("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, list) -- ...stack rows top to bottom
+	make("UIPadding", { PaddingTop = UDim.new(0, 8), PaddingLeft = UDim.new(0, 8) }, list)              -- ...with some breathing room
+end
+
+---------------------------------------------------------------------------
+-- 6. GAME LOGIC
+---------------------------------------------------------------------------
+
+-- getTeamPower(): adds up the Power of every character you hatched
+local function getTeamPower()
+	local total = 0                                   -- start at zero
+	for _, character in ipairs(Data.Team) do          -- look at each character in your team
+		total = total + character.Power               -- add its power to the total
+	end
+	return total                                      -- give back the sum
+end
+--[[
+	HOW "for _, character in ipairs(Data.Team) do" WORKS:
+	  - Data.Team is a LIST like { NinjaKid, FireMage, NinjaKid }
+	  - ipairs walks through it in order: 1st item, 2nd item, 3rd item...
+	  - each time, it gives us TWO things: the position (1, 2, 3...) and the item
+	  - we named the position "_" (means "I don't care about it")
+	  - we named the item "character" so we can use character.Power
+	  - "pairs" is the same idea but for tables with NAMED slots (like Data.Coins)
+]]
+
+-- getClickDamage(): how much one click hits for
+local function getClickDamage()
+	local damage = Data.ClickPower + (Data.Level - 1)  -- base + 1 extra per level
+	if Data.OwnsPass["2x Damage"] then                 -- if you own the 2x Damage gamepass...
+		damage = damage * 2                            -- ...double it
+	end
+	return damage
+end
+
+-- getAutoDamage(): how much your hero (and team) hit every second automatically
+local function getAutoDamage()
+	local damage = Data.AutoPower + getTeamPower()     -- hero's own power + all hatched characters
+	if Data.OwnsPass["2x Damage"] then damage = damage * 2 end -- gamepass bonus
+	return damage
+end
+
+-- getChapter(stage): which chapter a stage belongs to (1-10 = chapter 1, 11-20 = chapter 2, ...)
+local function getChapter(stage)
+	local number = math.floor((stage - 1) / STAGES_PER_CHAPTER) + 1 -- e.g. stage 15 -> floor(14/10)+1 = 2
+	return CHAPTERS[math.min(number, #CHAPTERS)], number            -- "#CHAPTERS" = how many chapters exist. After the last one it keeps using the last chapter (endless!)
+end
+
+-- isBossStage(stage): true if this is the 10th, 20th, 30th... stage
+local function isBossStage(stage)
+	return stage % STAGES_PER_CHAPTER == 0           -- "%" = remainder after dividing. 20 % 10 = 0, so stage 20 is a boss
+end
+
+-- updateUI(): refresh every number on screen. Call it whenever Data changes.
+local function updateUI()
+	coinsText.Text = formatNumber(Data.Coins)                          -- coins number
+	gemsText.Text = formatNumber(Data.Gems)                            -- gems number
+	levelText.Text = "LEVEL " .. Data.Level                            -- ".." glues text together: "LEVEL " .. 5 = "LEVEL 5"
+	local xpNeeded = Data.Level * 10                                   -- XP needed grows each level
+	tween(xpFill, 0.3, { Size = UDim2.new(math.clamp(Data.XP / xpNeeded, 0, 1), 0, 1, 0) }) -- fill bar = XP / needed (clamp keeps it between 0 and 1)
+	xpText.Text = "XP " .. Data.XP .. " / " .. xpNeeded                -- e.g. "XP 4 / 10"
+	hero.BarText.Text = "DMG " .. formatNumber(getClickDamage()) .. "  |  AUTO " .. formatNumber(getAutoDamage()) .. "/s" -- hero stats
+	teamText.Text = "TEAM POWER: " .. formatNumber(getTeamPower()) .. "  (" .. #Data.Team .. " heroes)" -- team info
+	local hpPercent = math.clamp(enemyHP / enemyMaxHP, 0, 1)           -- 0 to 1 how much health is left
+	tween(enemy.BarFill, 0.15, { Size = UDim2.new(hpPercent, 0, 1, 0) }) -- shrink the health bar smoothly
+	enemy.BarText.Text = formatNumber(math.max(enemyHP, 0)) .. " / " .. formatNumber(enemyMaxHP) -- "HP / MaxHP"
+end
+
+-- spawnEnemy(): create the enemy for the current stage
+local function spawnEnemy()
+	local chapter, chapterNumber = getChapter(Data.Stage)              -- which chapter we're in
+	local boss = isBossStage(Data.Stage)                               -- is this a boss?
+	enemyMaxHP = math.floor(10 * (1.35 ^ (Data.Stage - 1)))            -- HP grows 35% each stage ("^" = to the power of)
+	if boss then enemyMaxHP = enemyMaxHP * 5 end                       -- bosses have 5x health
+	enemyHP = enemyMaxHP                                               -- start at full health
+
+	if boss then
+		enemy.Name.Text = chapter.Boss                                 -- boss name
+		enemy.Name.TextColor3 = COLORS.Coin                            -- gold name for bosses
+	else
+		enemy.Name.Text = chapter.Enemies[math.random(1, #chapter.Enemies)] -- pick a random enemy name from the chapter list
+		enemy.Name.TextColor3 = COLORS.White
+	end
+	enemy.Gradient.Color = ColorSequence.new(chapter.Color, chapter.Color:Lerp(COLORS.Outline, 0.45)) -- card color = chapter color
+	stageGradient.Color = ColorSequence.new(chapter.Color, COLORS.Pink)                               -- banner color too
+
+	local stageInChapter = (Data.Stage - 1) % STAGES_PER_CHAPTER + 1   -- 1 to 10 inside this chapter
+	stageText.Text = "CH." .. chapterNumber .. " " .. chapter.Name .. " - " .. (boss and "BOSS!" or ("STAGE " .. stageInChapter))
+	pop(stageBanner, 1.3)                                              -- boing the banner
+
+	-- New enemy "drops in": start tiny and spin, then bounce to full size
+	local scale = getScale(enemy.Frame)
+	scale.Scale = 0
+	enemy.Frame.Rotation = 25
+	tween(scale, 0.5, { Scale = boss and 1.1 or 1 }, Enum.EasingStyle.Back) -- bosses are a bit bigger
+	tween(enemy.Frame, 0.5, { Rotation = 0 }, Enum.EasingStyle.Back)
+	updateUI()
+end
+
+-- floatingText(text, color, parent): a number that pops up, floats away and fades
+local function floatingText(text, color, parent)
+	local label = makeLabel(text, UDim2.new(0.5, 0, 0.15, 0), UDim2.new(0.3 + math.random() * 0.4, 0, 0.45, 0), parent, color) -- random spot
+	label.ZIndex = 10                                                          -- above everything on the card
+	label.Rotation = math.random(-20, 20)                                      -- random tilt = more fun
+	pop(label, 1.8)                                                            -- burst in big
+	tween(label, 0.9, { Position = label.Position - UDim2.new(0, 0, 0.35, 0), TextTransparency = 1 }) -- float up + fade
+	tween(label:FindFirstChildOfClass("UIStroke"), 0.9, { Transparency = 1 })  -- fade the outline too
+	task.delay(0.9, function() label:Destroy() end)                            -- delete it when done (keeps the game fast)
+end
+
+-- addXP(amount): gives XP and levels up when the bar is full
+local function addXP(amount)
+	Data.XP = Data.XP + amount                                 -- add XP
+	while Data.XP >= Data.Level * 10 do                        -- "while" repeats as long as this is true (you might level up twice!)
+		Data.XP = Data.XP - Data.Level * 10                    -- spend the XP
+		Data.Level = Data.Level + 1                            -- level up!
+		showToast("LEVEL UP!  LV " .. Data.Level, COLORS.Green)
+		pop(levelText.Parent, 1.5)                             -- boing the level pill (.Parent = the pill the text sits in)
+	end
+end
+
+local defeating = false -- a "lock" so the enemy can't die twice at the same time
+
+-- defeatEnemy(): enemy reached 0 HP -> give rewards and go to the next stage
+local function defeatEnemy()
+	if defeating then return end                               -- already handling a defeat? stop here
+	defeating = true                                           -- lock
+
+	local boss = isBossStage(Data.Stage)
+	local coins = math.floor(5 * (1.25 ^ (Data.Stage - 1)))    -- coins grow 25% each stage
+	if boss then coins = coins * 10 end                        -- bosses give 10x coins
+	if Data.OwnsPass["2x Coins"] then coins = coins * 2 end    -- gamepass bonus
+	Data.Coins = Data.Coins + coins
+	floatingText("+" .. formatNumber(coins) .. " COINS", COLORS.Coin, enemy.Frame)
+	pop(coinsText.Parent, 1.4)                                 -- boing the coins pill
+
+	if boss then                                               -- bosses also give gems
+		local gems = 5 + math.floor(Data.Stage / 10) * 2       -- more gems for later bosses
+		if Data.OwnsPass["VIP"] then gems = math.floor(gems * 1.5) end
+		Data.Gems = Data.Gems + gems
+		showToast("BOSS DEFEATED!  +" .. gems .. " GEMS", COLORS.Gem)
+		pop(gemsText.Parent, 1.5)
+	elseif math.random(1, 10) == 1 then                        -- 1 in 10 chance for a bonus gem from normal enemies
+		Data.Gems = Data.Gems + 1
+		floatingText("+1 GEM", COLORS.Gem, enemy.Frame)
+	end
+
+	addXP(boss and 10 or 2)                                    -- XP reward ("a and b or c" = if a then b else c)
+
+	-- Death animation: spin and shrink away
+	tween(getScale(enemy.Frame), 0.35, { Scale = 0 }, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+	tween(enemy.Frame, 0.35, { Rotation = -40 })
+	task.wait(0.4)                                             -- wait for the animation to finish
+
+	Data.Stage = Data.Stage + 1                                -- next stage
+	spawnEnemy()                                               -- bring in the new enemy
+	defeating = false                                          -- unlock
+end
+
+-- damageEnemy(amount, color): hurt the enemy with juicy effects
+local function damageEnemy(amount, color)
+	if defeating then return end                               -- don't hit a dying enemy
+	enemyHP = enemyHP - amount                                 -- lower health
+	floatingText("-" .. formatNumber(amount), color or COLORS.White, enemy.Frame) -- show the damage number
+	enemy.Flash.BackgroundTransparency = 0.2                   -- flash white...
+	tween(enemy.Flash, 0.25, { BackgroundTransparency = 1 })   -- ...and fade the flash away
+	task.spawn(shake, enemy.Frame)                             -- wiggle (task.spawn runs it at the same time as the rest of the code)
+	updateUI()
+	if enemyHP <= 0 then                                       -- out of health?
+		task.spawn(defeatEnemy)                                -- defeat it
+	end
+end
+
+-- heroLunge(): hero jumps forward toward the enemy then back
+local function heroLunge()
+	local frame = hero.Frame
+	tween(frame, 0.08, { Position = UDim2.new(0.25, 0, 0.56, 0), Rotation = 6 }) -- jump right + lean
+	task.delay(0.1, function()
+		tween(frame, 0.3, { Position = UDim2.new(0.2, 0, 0.56, 0), Rotation = 0 }, Enum.EasingStyle.Back) -- bounce back
+	end)
+end
+
+-- When the ATTACK button is clicked
+attackButton.MouseButton1Click:Connect(function()
+	heroLunge()                                                -- hero animation
+	damageEnemy(getClickDamage(), COLORS.Coin)                 -- hit with click damage (yellow numbers)
+end)
+--[[
+	WHAT IS ":Connect(function() ... end)"?
+	  attackButton.MouseButton1Click is an EVENT = "something that happens".
+	  :Connect( ) says "when that happens, run THIS function".
+	  The function has no name because we only need it right here.
+]]
+
+---------------------------------------------------------------------------
+-- SHOP
+---------------------------------------------------------------------------
+
+-- getUpgradeCost(upgrade): price goes up 1.5x for every one you already bought
+local function getUpgradeCost(upgrade)
+	return math.floor(upgrade.BaseCost * (1.5 ^ upgrade.Bought))
+end
+
+-- trySpend(currency, price): returns true and takes the money if you can afford it
+local function trySpend(currency, price)
+	if Data[currency] >= price then                  -- Data["Coins"] is the same as Data.Coins
+		Data[currency] = Data[currency] - price      -- take the money
+		return true                                  -- success!
+	end
+	showToast("NOT ENOUGH " .. string.upper(currency) .. "!", COLORS.Red) -- tell the player
+	return false                                     -- failed
+end
+
+makeLabel("UPGRADES", UDim2.new(1, -16, 0, 40), UDim2.new(0, 0, 0, 0), shopList, COLORS.Purple).ZIndex = 22 -- section title
+
+for _, upgrade in ipairs(UPGRADES) do                                -- one row per upgrade
+	local color = upgrade.Currency == "Gems" and COLORS.Gem or COLORS.Orange -- gem upgrades are blue
+	local _, buyButton, subLabel = makeItemRow(shopList, upgrade.Name, upgrade.Description, color, "")
+	local function refresh()                                          -- updates the price on the button
+		buyButton.Text = formatNumber(getUpgradeCost(upgrade)) .. (upgrade.Currency == "Gems" and " G" or " $")
+		subLabel.Text = upgrade.Description .. "  (owned " .. upgrade.Bought .. ")"
+	end
+	refresh()
+	buyButton.MouseButton1Click:Connect(function()
+		if trySpend(upgrade.Currency, getUpgradeCost(upgrade)) then   -- if we could pay...
+			Data[upgrade.Stat] = Data[upgrade.Stat] + upgrade.Amount  -- ...increase the stat (ClickPower or AutoPower)
+			upgrade.Bought = upgrade.Bought + 1                       -- ...count the purchase
+			refresh()
+			updateUI()
+			showToast(upgrade.Name .. " UPGRADED!", COLORS.Green)
+			pop(hero.Frame, 1.15)                                     -- hero does a happy boing
+		end
+	end)
+end
+
+makeLabel("GAMEPASSES", UDim2.new(1, -16, 0, 40), UDim2.new(0, 0, 0, 0), shopList, COLORS.Pink).ZIndex = 22 -- section title
+
+for _, pass in ipairs(GAMEPASSES) do                                  -- one row per gamepass
+	local _, buyButton = makeItemRow(shopList, pass.Name, pass.Description, pass.Color, "R$ BUY")
+	buyButton.MouseButton1Click:Connect(function()
+		if pass.Id == 0 then                                          -- id not set up yet?
+			showToast("Put your Gamepass ID in GAMEPASSES!", COLORS.Red)
+			return                                                    -- stop here
+		end
+		MarketplaceService:PromptGamePassPurchase(player, pass.Id)    -- open the Roblox buy window
+	end)
+end
+
+-- When a gamepass purchase window closes, check if they bought it
+MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(who, passId, purchased)
+	if who ~= player or not purchased then return end                -- not us, or they cancelled
+	for _, pass in ipairs(GAMEPASSES) do
+		if pass.Id == passId then
+			Data.OwnsPass[pass.Name] = true                           -- unlock the bonus
+			showToast("THANK YOU! " .. pass.Name .. " ACTIVE!", COLORS.Coin)
+		end
+	end
+	updateUI()
+end)
+
+---------------------------------------------------------------------------
+-- EGGS
+---------------------------------------------------------------------------
+
+-- pickRandomCharacter(): weighted random pick using each character's Chance
+local function pickRandomCharacter()
+	local total = 0
+	for _, character in ipairs(CHARACTERS) do total = total + character.Chance end -- add up all chances (= 100)
+	local roll = math.random() * total                     -- random number between 0 and total, e.g. 73.4
+	local runningTotal = 0
+	for _, character in ipairs(CHARACTERS) do              -- walk down the list...
+		runningTotal = runningTotal + character.Chance     -- ...adding each chance as we go (35, 60, 80, 92, 98, 100)
+		if roll <= runningTotal then                       -- the first one where we pass the roll wins
+			return character                               -- e.g. roll 73.4 -> passes at 80 -> Fire Mage!
+		end
+	end
+	return CHARACTERS[1]                                   -- safety backup (should never happen)
+end
+
+local hatching = false -- lock so you can't hatch two eggs at once
+
+-- playHatchAnimation(egg, character): the big exciting hatch cutscene
+local function playHatchAnimation(egg, character)
+	local overlay = make("Frame", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 1, ZIndex = 60 }, gui) -- dark cover
+	tween(overlay, 0.3, { BackgroundTransparency = 0.35 })               -- darken the screen
+
+	-- Spinning sun rays behind the egg
+	local rays = make("Frame", { Size = UDim2.new(0.9, 0, 0.9, 0), SizeConstraint = Enum.SizeConstraint.RelativeYY, Position = UDim2.new(0.5, 0, 0.5, 0), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1, ZIndex = 61 }, overlay)
+	for i = 1, 8 do                                                       -- 8 rays
+		make("Frame", {
+			Size = UDim2.new(0.08, 0, 1, 0), Position = UDim2.new(0.5, 0, 0.5, 0), AnchorPoint = Vector2.new(0.5, 0.5),
+			Rotation = i * 22.5,                                          -- 8 rays * 22.5 degrees = evenly spread (they're double-sided)
+			BackgroundColor3 = RARITY_COLORS[character.Rarity], BackgroundTransparency = 0.5, ZIndex = 61,
+		}, rays)
+	end
+	rays.Visible = false                                                  -- hidden until the reveal
+
+	-- The egg itself (an oval)
+	local eggFrame = make("Frame", { Size = UDim2.new(0.22, 0, 0.3, 0), SizeConstraint = Enum.SizeConstraint.RelativeYY, Position = UDim2.new(0.5, 0, 0.5, 0), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = egg.Color, ZIndex = 62 }, overlay)
+	addCorner(eggFrame, 999)                                              -- rounded = egg shape
+	addOutline(eggFrame, 6)
+	addGradient(eggFrame, COLORS.White, egg.Color)
+	pop(eggFrame, 0.2)                                                    -- grows in from tiny
+
+	-- Shake faster and faster
+	for i = 1, 10 do
+		local waitTime = 0.18 - i * 0.014                                 -- each shake is quicker than the last
+		tween(eggFrame, waitTime, { Rotation = (i % 2 == 0) and 15 or -15 })
+		task.wait(waitTime)
+	end
+
+	-- FLASH!
+	local flash = make("Frame", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = COLORS.White, ZIndex = 70 }, overlay)
+	tween(flash, 0.6, { BackgroundTransparency = 1 })                     -- white flash fades away
+	eggFrame:Destroy()                                                    -- the egg is gone
+
+	-- Reveal the character card
+	rays.Visible = true
+	local spin = TweenInfo.new(4, Enum.EasingStyle.Linear, Enum.EasingDirection.In, -1) -- spin forever
+	TweenService:Create(rays, spin, { Rotation = 360 }):Play()
+
+	local card = make("Frame", { Size = UDim2.new(0.28, 0, 0.42, 0), SizeConstraint = Enum.SizeConstraint.RelativeYY, Position = UDim2.new(0.5, 0, 0.5, 0), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = COLORS.White, ZIndex = 63 }, overlay)
+	addCorner(card, 24)
+	addOutline(card, 6)
+	addGradient(card, RARITY_COLORS[character.Rarity], RARITY_COLORS[character.Rarity]:Lerp(COLORS.Outline, 0.5))
+	local picture = make("ImageLabel", { Image = "", Size = UDim2.new(0.8, 0, 0.55, 0), Position = UDim2.new(0.5, 0, 0.4, 0), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = COLORS.White, BackgroundTransparency = 0.5, ZIndex = 64 }, card) -- blank character image
+	addCorner(picture, 18)
+	makeLabel(character.Rarity, UDim2.new(0.9, 0, 0.12, 0), UDim2.new(0.5, 0, 0.08, 0), card, RARITY_COLORS[character.Rarity]).ZIndex = 65
+	makeLabel(character.Name, UDim2.new(0.9, 0, 0.13, 0), UDim2.new(0.5, 0, 0.77, 0), card).ZIndex = 65
+	makeLabel("+" .. character.Power .. " POWER", UDim2.new(0.7, 0, 0.09, 0), UDim2.new(0.5, 0, 0.9, 0), card, COLORS.Coin).ZIndex = 65
+	pop(card, 0.1)                                                        -- burst in
+
+	task.wait(2.2)                                                        -- let them admire it
+	tween(getScale(card), 0.3, { Scale = 0 }, Enum.EasingStyle.Back, Enum.EasingDirection.In) -- shrink away
+	tween(overlay, 0.3, { BackgroundTransparency = 1 })
+	task.wait(0.3)
+	overlay:Destroy()                                                     -- clean up everything
+end
+
+-- the "YOUR TEAM" area inside the egg window gets refilled after each hatch
+local teamLabel = nil -- will be created below
+
+local function refreshTeamLabel()
+	local counts = {}                                                     -- e.g. counts["Ninja Kid"] = 3
+	for _, character in ipairs(Data.Team) do
+		counts[character.Name] = (counts[character.Name] or 0) + 1        -- count each name ("or 0" = start at 0 if new)
+	end
+	local lines = {}
+	for _, character in ipairs(CHARACTERS) do                             -- go in rarity order
+		if counts[character.Name] then
+			table.insert(lines, character.Name .. " x" .. counts[character.Name]) -- "Ninja Kid x3"
+		end
+	end
+	teamLabel.Text = #lines > 0 and table.concat(lines, "   ") or "No heroes yet... hatch an egg!" -- glue lines together
+end
+
+for _, egg in ipairs(EGGS) do                                             -- one row per egg
+	local priceText = formatNumber(egg.Price) .. (egg.Currency == "Gems" and " G" or " $")
+	local description = egg.Rolls > 1 and "Rolls twice, keeps the BEST!" or "A classic egg!"
+	local _, buyButton = makeItemRow(eggList, egg.Name, description, egg.Color:Lerp(COLORS.Pink, 0.4), priceText)
+	buyButton.MouseButton1Click:Connect(function()
+		if hatching then return end                                       -- already hatching? ignore
+		if not trySpend(egg.Currency, egg.Price) then return end          -- can't pay? stop
+		hatching = true
+
+		local best = pickRandomCharacter()                                -- first roll
+		for roll = 2, egg.Rolls do                                        -- extra rolls (Golden Egg only - for Basic Egg this loop runs 0 times)
+			local another = pickRandomCharacter()
+			if another.Power > best.Power then best = another end         -- keep the stronger one
+		end
+
+		updateUI()
+		eggPanel.Visible = false                                          -- hide the window during the cutscene
+		playHatchAnimation(egg, best)                                     -- the big animation (waits until finished)
+		table.insert(Data.Team, best)                                     -- add to your team
+		refreshTeamLabel()
+		updateUI()
+		showToast("You got " .. best.Name .. "!", RARITY_COLORS[best.Rarity])
+		pop(teamText, 1.5)
+		hatching = false
+	end)
+end
+
+makeLabel("YOUR TEAM", UDim2.new(1, -16, 0, 40), UDim2.new(0, 0, 0, 0), eggList, COLORS.Purple).ZIndex = 22
+teamLabel = makeLabel("", UDim2.new(1, -16, 0, 80), UDim2.new(0, 0, 0, 0), eggList, COLORS.Outline)
+teamLabel.Font = TEXT_FONT
+teamLabel.TextWrapped = true
+teamLabel.ZIndex = 22
+teamLabel:FindFirstChildOfClass("UIStroke").Color = COLORS.White          -- dark text, white outline (readable on cream)
+refreshTeamLabel()
+
+---------------------------------------------------------------------------
+-- STORY
+---------------------------------------------------------------------------
+local storyRows = {} -- remember each chapter's row so we can update it
+
+for index, chapter in ipairs(CHAPTERS) do
+	local firstStage = (index - 1) * STAGES_PER_CHAPTER + 1                  -- chapter 2 starts at stage 11
+	local lastStage = index * STAGES_PER_CHAPTER                             -- chapter 2 ends at stage 20
+	local row, button, subLabel = makeItemRow(storyList, "CH." .. index .. " " .. chapter.Name, "Stages " .. firstStage .. "-" .. lastStage .. "  |  Boss: " .. chapter.Boss, chapter.Color, "")
+	button.Active = false                                                    -- just a status badge, not clickable
+	storyRows[index] = { Row = row, Button = button, First = firstStage, Last = lastStage }
+end
+
+local function refreshStory()
+	for _, info in pairs(storyRows) do
+		if Data.Stage > info.Last then                                       -- beaten
+			info.Button.Text = "CLEARED"
+			info.Button.TextColor3 = COLORS.Coin
+		elseif Data.Stage >= info.First then                                 -- current
+			info.Button.Text = "NOW!"
+			info.Button.TextColor3 = COLORS.White
+		else                                                                 -- not reached
+			info.Button.Text = "LOCKED"
+			info.Button.TextColor3 = Color3.fromRGB(160, 160, 160)
+		end
+	end
+end
+
+-- Menu buttons open their windows
+shopButton.MouseButton1Click:Connect(function() openPanel(shopPanel) end)
+eggsButton.MouseButton1Click:Connect(function() openPanel(eggPanel) end)
+storyButton.MouseButton1Click:Connect(function()
+	refreshStory()                                                           -- update before showing
+	openPanel(storyPanel)
+end)
+
+---------------------------------------------------------------------------
+-- 7. START THE GAME
+---------------------------------------------------------------------------
+
+-- Check which gamepasses the player already owns (pcall = "try this, don't crash if it fails")
+for _, pass in ipairs(GAMEPASSES) do
+	if pass.Id ~= 0 then                                                     -- only real ids
+		local ok, owns = pcall(function()
+			return MarketplaceService:UserOwnsGamePassAsync(player.UserId, pass.Id)
+		end)
+		if ok and owns then Data.OwnsPass[pass.Name] = true end
+	end
+end
+
+spawnEnemy()                                                                 -- first enemy
+updateUI()                                                                   -- fill in all the numbers
+
+-- Every frame: spin the background, the attack button rainbow
+RunService.RenderStepped:Connect(function(deltaTime)                         -- deltaTime = seconds since the last frame (about 0.016)
+	backgroundGradient.Rotation = (backgroundGradient.Rotation + deltaTime * 15) % 360 -- slow spin (15 degrees/sec)
+	rainbow.Offset = Vector2.new((os.clock() * 0.5) % 2 - 1, 0)              -- slide the rainbow sideways forever
+end)
+
+-- AUTO ATTACK: every second your hero + team hits the enemy by themselves
+task.spawn(function()                                                        -- run this loop "on the side" so it doesn't freeze the script
+	while true do                                                            -- loop forever
+		task.wait(1)                                                         -- wait 1 second
+		if getAutoDamage() > 0 then
+			heroLunge()
+			damageEnemy(getAutoDamage(), COLORS.Gem)                         -- blue numbers = auto damage
+		end
+	end
+end)
+]]></ProtectedString>
+</Properties>
+</Item>
+</roblox>

@@ -1,8 +1,23 @@
 # SDCO: Anime Incremental (Roblox, fully UI)
 
-**Install:** open `StudioCommand.lua`, copy all of it, and paste it into Roblox Studio's
-**Command Bar** (View tab, then Command Bar). Press Enter, then press Play.
+## Install (pick ONE)
 
-- `src/AnimeIncrementalGame.client.lua`: the game itself, commented line by line
-- `StudioCommand.lua`: the same code wrapped up so the Command Bar can install it
-- `LEARN_LUA.md`: beginner guide to functions, loops, and events
+**A. Easiest, works every time**
+1. In Studio's Explorer, open **StarterPlayer**, hover **StarterPlayerScripts**, click **+**, and pick **LocalScript**.
+2. Rename it `AnimeIncrementalGame`.
+3. Delete the `print("Hello world!")` line, then paste in everything from `src/AnimeIncrementalGame.client.lua`.
+4. Press **Play**.
+
+**B. Insert from file**
+Download `AnimeIncrementalGame.rbxmx`, right-click **StarterPlayerScripts**, choose **Insert from File...**, then press Play.
+
+**C. Command Bar**
+Copy all of `StudioCommand.lua` (it's one long line), paste it into **View > Command Bar**, press Enter,
+and check that the **Output** window says "installed". Then press Play.
+Don't paste it into a Script, because it only works from the Command Bar.
+
+## Files
+- `src/AnimeIncrementalGame.client.lua`: the game, commented line by line
+- `AnimeIncrementalGame.rbxmx`: the same script as a Roblox model file
+- `StudioCommand.lua`: one-line Command Bar installer
+- `LEARN_LUA.md`: beginner Lua guide
